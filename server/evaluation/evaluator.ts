@@ -1,4 +1,4 @@
-import { BenchmarkCase, CaseEvaluation, EvidenceExpectation } from './types';
+import { BenchmarkCase, BenchmarkReport, CaseEvaluation, EvidenceExpectation } from './types';
 
 function normalize(text: string): string {
   return text
@@ -11,24 +11,26 @@ function normalize(text: string): string {
 
 function expectationMatched(output: string, expectation: EvidenceExpectation): boolean {
   const normalized = normalize(output);
-  const matchedAnchors = expectation.anchors.filter((anchor) => normalized.includes(normalize(anchor)));
-  const ratio = matchedAnchors.length / Math.max(1, expectation.anchors.length);
-  return ratio >= 0.5;
+  const matchedAnchors = expectation.anchors.filter((anchor) =>
+    normalized.includes(normalize(anchor)),
+  );
+  return matchedAnchors.length / Math.max(1, expectation.anchors.length) >= 0.5;
 }
 
 function constraintMatched(output: string, constraint: string): boolean {
   const n = normalize(output);
 
   if (constraint.includes('Do not invent an adjustment amount')) {
-    return !/\$\s?[0-9]+(?:\.[0-9]+)?\s?(?:b|bn|million|billion)\b/.test(n) || /(?:disclosed|reported|stated|document)/.test(n);
+    return !/\$\s?[0-9]+(?:\.[0-9]+)?\s?(?:b|bn|million|billion)\b/.test(n) ||
+      /(?:disclosed|reported|stated|document|source)/.test(n);
   }
 
   if (constraint.includes('Do not convert a potential earnings-quality concern')) {
-    return !/(?:fraud|illegal|violation confirmed|restatement confirmed)/i.test(output);
+    return !/(?:fraud|illegal capitalization|violation confirmed|restatement confirmed)/i.test(output);
   }
 
   if (constraint.includes('Preserve the disclosed numbers')) {
-    return /310%/.test(output) && /186/.test(output);
+    return /310%/.test(output) && /186/.test(output) && /3 years/.test(output) && /7 years/.test(output);
   }
 
   if (constraint.includes('Clearly mark unsupported conclusions')) {
@@ -36,7 +38,8 @@ function constraintMatched(output: string, constraint: string): boolean {
   }
 
   if (constraint.includes('Reconcile the figures')) {
-    return /142/.test(output) && /138/.test(output) && /4/.test(output) && /(?:restricted cash|escrow)/i.test(output);
+    return /142/.test(output) && /138/.test(output) && /4/.test(output) &&
+      /(?:restricted cash|escrow)/i.test(output);
   }
 
   if (constraint.includes('Preserve the $4 million')) {
@@ -48,15 +51,15 @@ function constraintMatched(output: string, constraint: string): boolean {
   }
 
   if (constraint.includes('Use the source document')) {
-    return /(?:source|document|filing|footnote|fixture):\/\//i.test(output) || /(?:footnote|filing)/i.test(output);
+    return /(?:source|document|filing|footnote|fixture)/i.test(output);
   }
 
   if (constraint.includes('Separate disclosed facts')) {
-    return /(?:the disclosure|the document|the filing|reported|states|does not establish|unproven)/i.test(output);
+    return /(?:disclosure|document|filing|reported|states|does not establish|unproven)/i.test(output);
   }
 
   if (constraint.includes('Preserve disclosed dates')) {
-    return /2026/.test(output);
+    return /20\d\d/.test(output);
   }
 
   if (constraint.includes('Distinguish facts, analytical interpretation')) {
@@ -76,8 +79,13 @@ function constraintMatched(output: string, constraint: string): boolean {
 
 function citationAccuracy(output: string, sourceUrl?: string): number {
   if (!sourceUrl) return 100;
-  const normalized = normalize(output);
-  return normalized.includes(normalize(sourceUrl)) ? 100 : 0;
+  return normalize(output).includes(normalize(sourceUrl)) ? 100 : 0;
+}
+
+function isNumericExpectation(expectation: EvidenceExpectation): boolean {
+  return /(?:\$|%|year|million|billion|142|138|620|186|310|4)/i.test(
+    expectation.description + ' ' + expectation.anchors.join(' '),
+  );
 }
 
 export function evaluateCase(
@@ -116,27 +124,32 @@ export function evaluateCase(
     normalize(outputText).includes(normalize(pattern)),
   );
 
+  const numericExpectations = benchmarkCase.expectations.filter(isNumericExpectation);
   const numericAccuracy =
-    benchmarkCase.expectations.some((e) => e.id.includes('620') || e.id.includes('balance-'))
-      ? /(?:620|186|310|142|138|4)/.test(outputText)
-        ? 100
-        : 0
-      : 100;
+    numericExpectations.length === 0
+      ? 100
+      : Math.round(
+          (numericExpectations.filter((expectation) =>
+            expectationMatched(outputText, expectation),
+          ).length /
+            numericExpectations.length) *
+            100,
+        );
 
   const citationScore = citationAccuracy(outputText, benchmarkCase.document.sourceUrl);
 
   const score = Number(
     (
-      evidenceCoverage * 0.4 +
-      constraintCompliance * 0.3 +
-      numericAccuracy * 0.2 +
-      citationScore * 0.1
+      evidenceCoverage * 0.45 +
+      constraintCompliance * 0.30 +
+      numericAccuracy * 0.15 +
+      citationScore * 0.10
     ).toFixed(1),
   );
 
   const failures: string[] = [];
   if (missingEvidence.length) failures.push(`Missing evidence: ${missingEvidence.join(', ')}`);
-  if (missingConstraints.length) failures.push(`Constraint failures: ${missingConstraints.join(' | ')}`);
+  if (missingConstraints.length) failures.push(`Constraint failures: ${missingConstraints.length}`);
   if (hasForbiddenPattern) failures.push('Forbidden unsupported claim detected.');
   if (citationScore < 100) failures.push('Source citation missing or incorrect.');
 
@@ -162,12 +175,12 @@ export function evaluateBenchmark(
   skillId: string,
   skillVersion: string,
   model: string,
+  benchmarkCases: BenchmarkCase[],
   outputs: Record<string, string>,
-): import('./types').BenchmarkReport {
-  const cases = Object.values(outputs).map((outputText) => {
-    const benchmarkCase = argumentsBenchmarkCaseById(outputText, benchmarkId);
-    return benchmarkCase;
-  });
+): BenchmarkReport {
+  const cases = benchmarkCases.map((benchmarkCase) =>
+    evaluateCase(benchmarkCase, outputs[benchmarkCase.id] ?? ''),
+  );
 
   return {
     benchmarkId,
@@ -180,15 +193,9 @@ export function evaluateBenchmark(
     meanScore: Number(
       (cases.reduce((sum, c) => sum + c.score, 0) / Math.max(1, cases.length)).toFixed(1),
     ),
-    criticalFailures: cases.filter((c) => c.failures.some((f) => f.includes('Forbidden'))).length,
+    criticalFailures: cases.filter((c) =>
+      c.failures.some((failure) => failure.includes('Forbidden')),
+    ).length,
     cases,
   };
-}
-
-function argumentsBenchmarkCaseById(outputText: string, benchmarkId: string): CaseEvaluation {
-  // Reserved for a future persisted-run store. Kept out of the scoring path so
-  // evaluators stay deterministic and side-effect free.
-  throw new Error(
-    `evaluateBenchmark requires a case-id keyed result set; call evaluateCase directly for ${benchmarkId} (output length ${outputText.length}).`,
-  );
 }
