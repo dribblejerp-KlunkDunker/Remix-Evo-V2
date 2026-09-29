@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Evolution Research Agent Matrix",
+  "description": "Autonomous financial research Antigravity agent showing strong multimodality skills that gathers SEC filings, processes reasoning timelines, and generates interactive stock analysis reports. No reverse engineer that entire prompt and make an application that expertly creates ai agent skills using all different vectors, real world use cases, statistics, science, manipulation, psychology, engineering, advanced math, game design etc. It uses and remixes skills from all different data sets and creates its own. It autonomously creates skills through the day while testing them and grading them against different real world use cases until it meets a specific threshold where it moves on too the next stage as a champion skill. The app can also be used to simultaneously create ai agent prompts and train specialist agents that follow strict rules , keeping the effectiveness and quality top tier. The entire system is designed to always be training something better and better with no true down time. Even if a bot is not creating it is thinking, analyzing and evaluating.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
