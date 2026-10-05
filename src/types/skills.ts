@@ -103,6 +103,26 @@ export interface StageHistoryItem {
   notes: string;
 }
 
+export interface SkillAttachedFile {
+  id: string;
+  name: string;
+  type: 'txt' | 'md' | 'pdf';
+  sizeBytes: number;
+  uploadedAt: string;
+  contentPreview?: string;
+  fullContent?: string;
+  blobUrl?: string;
+  parsedData?: {
+    extractedTitle?: string;
+    extractedDescription?: string;
+    extractedDirectives?: string[];
+    extractedRules?: string[];
+    codeSnippets?: string[];
+    pdfPageCount?: number;
+    charCount?: number;
+  };
+}
+
 export interface AgentSkill {
   id: string;
   code: string;
@@ -134,6 +154,7 @@ export interface AgentSkill {
   };
   testCases: SkillTestCase[];
   evolutionLineage: EvolutionLineage;
+  attachedFiles?: SkillAttachedFile[];
   openSourceLineage?: {
     source: 'GitHub' | 'HuggingFace' | 'Research Paper' | 'Internal';
     repoOrDataset?: string;

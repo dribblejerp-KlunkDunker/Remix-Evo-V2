@@ -3,10 +3,81 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#090d16" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Remix Evo" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <title>Remix: Evolution Research Agent Matrix</title>
     <meta name="description" content="Autonomous agent skills matrix and evolution research lab that remixes skills across statistics, psychology, math, game design, and finance, running continuous evolution cycles through Idea, Training, Testing, and Champion states." />
     <meta property="og:title" content="Remix: Evolution Research Agent Matrix" />
     <meta property="og:description" content="Autonomous agent skills matrix and evolution research lab that remixes skills across statistics, psychology, math, game design, and finance, running continuous evolution cycles through Idea, Training, Testing, and Champion states." />
+    <script>
+      (function() {
+        // 1. Safe Mock for Vite dev HMR WebSocket (per environment constraints: HMR is disabled, ignore WebSocket errors)
+        try {
+          var OrigWebSocket = window.WebSocket;
+          if (OrigWebSocket) {
+            window.WebSocket = function(url, protocols) {
+              var str = String(url || '') + ' ' + String(protocols || '');
+              if (str.indexOf('vite-hmr') !== -1 || protocols === 'vite-hmr') {
+                return {
+                  readyState: 3,
+                  close: function() {},
+                  send: function() {},
+                  addEventListener: function() {},
+                  removeEventListener: function() {},
+                  dispatchEvent: function() { return false; },
+                  onopen: null,
+                  onclose: null,
+                  onerror: null,
+                  onmessage: null
+                };
+              }
+              return new OrigWebSocket(url, protocols);
+            };
+            window.WebSocket.prototype = OrigWebSocket.prototype;
+          }
+        } catch (_) {}
+
+        // 2. Filter out [vite] and WebSocket connection errors from console
+        var filterVite = function(origFn) {
+          if (!origFn) return function() {};
+          return function() {
+            for (var i = 0; i < arguments.length; i++) {
+              var s = String(arguments[i] && (arguments[i].message || arguments[i]));
+              if (s.indexOf('[vite]') !== -1 || s.indexOf('WebSocket') !== -1) {
+                return;
+              }
+            }
+            return origFn.apply(console, arguments);
+          };
+        };
+        console.error = filterVite(console.error);
+        console.warn = filterVite(console.warn);
+        console.info = filterVite(console.info);
+        console.debug = filterVite(console.debug);
+
+        // 3. Catch and suppress any trailing unhandled rejections or window error events
+        window.addEventListener('unhandledrejection', function(e) {
+          var str = String((e && (e.reason && (e.reason.message || e.reason))) || '');
+          if (str.indexOf('WebSocket') !== -1 || str.indexOf('[vite]') !== -1) {
+            e.preventDefault();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          }
+        }, true);
+        window.addEventListener('error', function(e) {
+          var str = String((e && (e.message || e.error)) || '');
+          if (str.indexOf('WebSocket') !== -1 || str.indexOf('[vite]') !== -1) {
+            e.preventDefault();
+            if (e.stopImmediatePropagation) e.stopImmediatePropagation();
+          }
+        }, true);
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

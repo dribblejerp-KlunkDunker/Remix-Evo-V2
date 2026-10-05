@@ -1,4 +1,9 @@
 import { LandingView } from './LandingView';
+import { EngineBadge } from './components/EngineBadge';
+import { ProviderBadge } from './components/ProviderBadge';
+import { LaptopInstallButton } from './components/LaptopInstallButton';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { useProviderConfig } from './hooks/useProviderConfig';
 import React, { useState, useRef, useEffect } from 'react';
 import { PulsatingDotsBackground } from './components/PulsatingDots';
 import { Search, Loader2, Trophy, LineChart, Sparkles, Cpu } from 'lucide-react';
@@ -41,6 +46,7 @@ export interface ReportData {
 const ENABLE_JSON_DOWNLOAD = false;
 
 export default function App() {
+  const { activeProvider, activeModel, currentProviderObj } = useProviderConfig();
   const [ticker, setTicker] = useState('');
   const [instruction, setInstruction] = useState('');
   
@@ -202,7 +208,8 @@ export default function App() {
           ticker: ticker.trim(),
           instruction: instruction.trim() || undefined,
           origin: window.location.origin,
-          model: model
+          model: model,
+          provider: activeProvider
         }),
         signal: controller.signal,
       });
@@ -328,8 +335,12 @@ export default function App() {
     if (!ticker.trim() || running || runningPerseus) return;
     setIsReportOpen(false);
     
-    startStream('gemini-3.5-flash', setRunning, setError, setReportData, setEvents, pushEvent, setTokenCount, setToolRuns, setDurationSecs, setStartTime, abortRef, eventIdRef);
-    startStream('perseus', setRunningPerseus, setErrorPerseus, setReportDataPerseus, setEventsPerseus, pushEventPerseus, setTokenCountPerseus, setToolRunsPerseus, setDurationSecsPerseus, setStartTimePerseus, abortRefPerseus, eventIdRefPerseus);
+    if (activeProvider !== 'gemini') {
+      startStream(activeModel, setRunningPerseus, setErrorPerseus, setReportDataPerseus, setEventsPerseus, pushEventPerseus, setTokenCountPerseus, setToolRunsPerseus, setDurationSecsPerseus, setStartTimePerseus, abortRefPerseus, eventIdRefPerseus);
+    } else {
+      startStream('gemini-3.5-flash', setRunning, setError, setReportData, setEvents, pushEvent, setTokenCount, setToolRuns, setDurationSecs, setStartTime, abortRef, eventIdRef);
+      startStream('perseus', setRunningPerseus, setErrorPerseus, setReportDataPerseus, setEventsPerseus, pushEventPerseus, setTokenCountPerseus, setToolRunsPerseus, setDurationSecsPerseus, setStartTimePerseus, abortRefPerseus, eventIdRefPerseus);
+    }
   };
 
   if (isReportOpen === 'flash' && reportData) {
@@ -375,48 +386,53 @@ export default function App() {
             <Cpu className="w-4 h-4" />
           </div>
           <div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-2">
               <span className="font-display font-bold text-lg tracking-wider uppercase text-white">Remix</span>
-              <span className="font-mono text-[10px] uppercase text-emerald-400 font-semibold px-1.5 py-0.5 bg-emerald-950/60 border border-emerald-800/60">Matrix Active</span>
+              <EngineBadge />
+              <ProviderBadge />
             </div>
             <div className="font-mono text-[11px] text-stone-400">Evolution Research Agent Matrix</div>
           </div>
         </div>
 
-        {/* View Switcher Tabs */}
-        <div className="flex items-center p-1 bg-stone-950/80 border border-stone-800 text-xs font-mono">
-          <button
-            onClick={() => setActiveTab('skills')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 transition-colors ${
-              activeTab === 'skills'
-                ? 'bg-stone-800 text-white font-semibold shadow-sm border border-stone-700'
-                : 'text-stone-400 hover:text-stone-200 border border-transparent'
-            }`}
-          >
-            <Trophy className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Agent Skills Matrix</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          </button>
-          <button
-            onClick={() => setActiveTab('analyzer')}
-            className={`flex items-center gap-2 px-3.5 py-1.5 transition-colors ${
-              activeTab === 'analyzer'
-                ? 'bg-stone-800 text-white font-semibold shadow-sm border border-stone-700'
-                : 'text-stone-400 hover:text-stone-200 border border-transparent'
-            }`}
-          >
-            <LineChart className="w-3.5 h-3.5 text-blue-400" />
-            <span>SEC Analyzer</span>
-            {(running || runningPerseus) && (
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-            )}
-          </button>
+        {/* Right Controls: View Switcher Tabs & Laptop Install */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center p-1 bg-stone-950/80 border border-stone-800 text-xs font-mono">
+            <button
+              onClick={() => setActiveTab('skills')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 transition-colors ${
+                activeTab === 'skills'
+                  ? 'bg-stone-800 text-white font-semibold shadow-sm border border-stone-700'
+                  : 'text-stone-400 hover:text-stone-200 border border-transparent'
+              }`}
+            >
+              <Trophy className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Agent Skills Matrix</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            </button>
+            <button
+              onClick={() => setActiveTab('analyzer')}
+              className={`flex items-center gap-2 px-3.5 py-1.5 transition-colors ${
+                activeTab === 'analyzer'
+                  ? 'bg-stone-800 text-white font-semibold shadow-sm border border-stone-700'
+                  : 'text-stone-400 hover:text-stone-200 border border-transparent'
+              }`}
+            >
+              <LineChart className="w-3.5 h-3.5 text-blue-400" />
+              <span>SEC Analyzer</span>
+              {(running || runningPerseus) && (
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+              )}
+            </button>
+          </div>
+
+          <LaptopInstallButton />
         </div>
       </header>
 
       {/* Main Content */}
       {activeTab === 'skills' ? (
-        <main className="relative z-10 flex-1 overflow-y-auto no-scrollbar min-h-0">
+        <main className="relative flex-1 overflow-y-auto no-scrollbar min-h-0">
           <AgentSkillsDashboard />
         </main>
       ) : (
@@ -428,8 +444,8 @@ export default function App() {
                 <div className="flex-1 flex flex-col bg-stone-900/50 rounded-xl border border-stone-800 overflow-hidden min-h-0">
                   <div className="p-3 bg-stone-800/80 border-b border-stone-700 font-bold text-stone-200 text-sm flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                      <img src="https://www.gstatic.com/lamda/images/gemini_sparkle_aurora_33f86dc0c0257da337c63.svg" alt="Gemini Sparkle" className="w-5 h-5" />
-                      <span>Gemini Managed Agents</span>
+                      <Cpu className="w-4 h-4 text-purple-400" />
+                      <span>{currentProviderObj.name} Agent ({activeModel})</span>
                     </div>
                     {runningPerseus && <Loader2 className="w-4 h-4 animate-spin text-stone-400" />}
                   </div>
@@ -463,11 +479,12 @@ export default function App() {
                      value={ticker}
                      onChange={(e) => setTicker(e.target.value)}
                      placeholder="Enter a stock or ETF ticker symbol here" 
-                     disabled={running}
+                     disabled={running || runningPerseus}
                      className="bg-transparent border-none outline-none w-full text-white font-mono uppercase placeholder-stone-600"
                      onKeyDown={(e) => e.key === 'Enter' && runAnalysis()}
                    />
                 </div>
+                <ProviderBadge compact />
                 <button 
                   onClick={runAnalysis}
                   disabled={!ticker.trim() || running || runningPerseus}
@@ -478,12 +495,13 @@ export default function App() {
               </div>
               
               <div className="text-center mt-4">
-                <span className="text-xs text-stone-500 font-mono tracking-wider">Gemini can make mistakes, don’t rely on it for financial advice.</span>
+                <span className="text-xs text-stone-500 font-mono tracking-wider">{currentProviderObj.name} can make mistakes, don’t rely on it for financial advice.</span>
               </div>
             </div>
           </div>
         </main>
       )}
+      <OfflineIndicator />
     </div>
   );
 }

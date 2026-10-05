@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { AgentSkill } from '../../types/skills';
 import {
   HISTORICAL_STRESS_SCENARIOS,
@@ -37,6 +37,12 @@ import {
 
 export interface ChampionBenchmarkModuleProps {
   skills: AgentSkill[];
+  /**
+   * Runs the skill against the engine's held-out scenarios for real. When
+   * supplied it replaces the local simulation entirely — a benchmark number
+   * that was not produced by executing the skill is not a benchmark.
+   */
+  onRunLiveBenchmark?: (skillId: string) => Promise<any>;
   initialSelectedSkillId?: string;
   isOpenAsOverlay?: boolean;
   onCloseOverlay?: () => void;
@@ -47,6 +53,7 @@ export interface ChampionBenchmarkModuleProps {
 
 export const ChampionBenchmarkModule: React.FC<ChampionBenchmarkModuleProps> = ({
   skills,
+  onRunLiveBenchmark,
   initialSelectedSkillId,
   isOpenAsOverlay = false,
   onCloseOverlay,
@@ -82,8 +89,26 @@ export const ChampionBenchmarkModule: React.FC<ChampionBenchmarkModuleProps> = (
   const [isRunningBenchmark, setIsRunningBenchmark] = useState(false);
   const [progressStep, setProgressStep] = useState<number>(0);
   const [currentRunningScenarioName, setCurrentRunningScenarioName] = useState<string>('');
+  const [liveReport, setLiveReport] = useState<any | null>(null);
+  // The held-out scenarios a live run actually uses. The engine picks them from
+  // the skill's own vectors; the historical picker below does not apply to it.
+  const [liveScenarios, setLiveScenarios] = useState<{ id: string; shortName: string; name: string; difficulty: string; vectors: string[] }[]>([]);
+  useEffect(() => {
+    if (!onRunLiveBenchmark) return;
+    let cancelled = false;
+    fetch('/api/evolution/scenarios')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d) setLiveScenarios(d.holdout); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [onRunLiveBenchmark]);
+  const [liveError, setLiveError] = useState<string | null>(null);
+
+  // With a live engine, no report exists until one is actually run. Seeding the
+  // panel with a simulated report would put a fabricated score on screen before
+  // the operator has benchmarked anything.
   const [activeReport, setActiveReport] = useState<ChampionBenchmarkReport | null>(() => {
-    if (selectedSkill) {
+    if (selectedSkill && !onRunLiveBenchmark) {
       return executeChampionBenchmark(selectedSkill, HISTORICAL_STRESS_SCENARIOS.map((s) => s.id));
     }
     return null;
@@ -115,6 +140,29 @@ export const ChampionBenchmarkModule: React.FC<ChampionBenchmarkModuleProps> = (
     setIsRunningBenchmark(true);
     setProgressStep(0);
 
+    // Live path: the engine executes and judges the skill for real. Scenario
+    // selection is ignored here because the engine benchmarks against its own
+    // held-out split — running against scenarios the skill was tuned on would
+    // produce a flattering number that means nothing.
+    if (onRunLiveBenchmark) {
+      setCurrentRunningScenarioName('Executing against held-out scenarios…');
+      try {
+        const live = await onRunLiveBenchmark(selectedSkill.id);
+        setLiveReport(live);
+        setLiveError(null);
+        setActiveReport(null);
+        setInspectedScenarioResult(null);
+      } catch (err) {
+        setLiveError(err instanceof Error ? err.message : String(err));
+        setLiveReport(null);
+      } finally {
+        setIsRunningBenchmark(false);
+        setProgressStep(0);
+        setCurrentRunningScenarioName('');
+      }
+      return;
+    }
+
     const chosenScenarios = HISTORICAL_STRESS_SCENARIOS.filter((s) => selectedScenarioIds.includes(s.id));
 
     for (let i = 0; i < chosenScenarios.length; i++) {
@@ -145,8 +193,86 @@ export const ChampionBenchmarkModule: React.FC<ChampionBenchmarkModuleProps> = (
     setTimeout(() => setIsExportSuccess(false), 3000);
   };
 
+  const relevantLive = liveScenarios.filter((sc) => sc.vectors.some((v) => selectedSkill?.vectors.includes(v as any)));
+
+  const liveReportPanel = (liveError || liveReport) && (
+    <div className="bg-stone-900/70 border border-emerald-900/60 p-4 mb-4">
+      {liveError ? (
+        <div className="text-[12px] text-red-400 font-mono">{liveError}</div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-[11px] uppercase tracking-wider text-emerald-400 font-bold">
+              Live Benchmark — {liveReport.skillName}
+            </span>
+            <span className="text-[10px] text-stone-500 font-mono">
+              {liveReport.results.length} held-out scenarios · {liveReport.totalCalls} model calls ·{' '}
+              {new Date(liveReport.ranAt).toLocaleTimeString()}
+            </span>
+          </div>
+          <div className="flex gap-6 mb-3 font-mono">
+            <div>
+              <div className="text-[10px] text-stone-500 uppercase">Mean</div>
+              <div className="text-xl text-emerald-400 font-bold">{liveReport.meanScore}%</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-stone-500 uppercase">Pass rate</div>
+              <div className="text-xl text-stone-200 font-bold">{liveReport.passRate}%</div>
+            </div>
+            <div>
+              <div className="text-[10px] text-stone-500 uppercase">Threshold</div>
+              <div className="text-xl text-stone-400 font-bold">{liveReport.threshold}%</div>
+            </div>
+            {liveReport.worstScenario && (
+              <div>
+                <div className="text-[10px] text-stone-500 uppercase">Weakest</div>
+                <div className="text-sm text-amber-400 font-bold pt-1.5">{liveReport.worstScenario}</div>
+              </div>
+            )}
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] font-mono">
+              <thead className="text-stone-500 border-b border-stone-800">
+                <tr>
+                  <th className="text-left py-1.5 pr-3 font-normal">Scenario</th>
+                  <th className="text-right py-1.5 px-2 font-normal">Score</th>
+                  <th className="text-right py-1.5 px-2 font-normal">Constraints</th>
+                  <th className="text-right py-1.5 px-2 font-normal">Unsupported</th>
+                  <th className="text-left py-1.5 pl-3 font-normal">Verdict</th>
+                </tr>
+              </thead>
+              <tbody>
+                {liveReport.results.map((r: any) => (
+                  <tr key={r.scenarioId} className="border-b border-stone-900/60">
+                    <td className="py-1.5 pr-3 text-stone-300">{r.scenarioShort}</td>
+                    <td className={`text-right px-2 font-bold ${r.passed ? 'text-emerald-400' : 'text-amber-400'}`}>
+                      {r.score}%
+                    </td>
+                    <td className="text-right px-2 text-stone-400">
+                      {r.constraintsMet}/{r.constraintsTotal}
+                    </td>
+                    <td className={`text-right px-2 ${r.unsupportedClaims > 0 ? 'text-red-400' : 'text-stone-600'}`}>
+                      {r.unsupportedClaims}
+                    </td>
+                    <td className="pl-3 text-stone-500 truncate max-w-[260px]">{r.verdict}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {liveReport.skipped.length > 0 && (
+            <p className="text-[10px] text-amber-500 mt-2">
+              Budget ran out before: {liveReport.skipped.join(', ')}. These are missing from the averages.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+
   const content = (
     <div className={`space-y-6 ${className}`}>
+      {liveReportPanel}
       {/* 1. Header Banner */}
       <div className="bg-stone-900/60 border border-stone-800/90 p-5 backdrop-blur-xs relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-36 bg-amber-500/10 blur-3xl pointer-events-none" />
@@ -169,7 +295,9 @@ export const ChampionBenchmarkModule: React.FC<ChampionBenchmarkModuleProps> = (
               </span>
             </div>
             <p className="text-xs text-stone-400 font-sans max-w-3xl">
-              Subject field-tested Champion agent skills to catastrophic historical market dislocations (2008 Lehman repo freeze, 2023 SVB run, 2024 Yen flash crash, Dot-com synthetic swaps). Generates an audited, deterministic quantitative stress resilience report.
+              {onRunLiveBenchmark
+                ? 'Runs the selected skill against every held-out scenario in its field, through the same execute-and-judge path the evolution loop uses. Results are real model output and count toward its promotion gate.'
+                : 'Subject field-tested Champion agent skills to catastrophic historical market dislocations (2008 Lehman repo freeze, 2023 SVB run, 2024 Yen flash crash, Dot-com synthetic swaps). Generates an audited, deterministic quantitative stress resilience report.'}
             </p>
           </div>
 
@@ -256,12 +384,15 @@ export const ChampionBenchmarkModule: React.FC<ChampionBenchmarkModuleProps> = (
           <div className="flex items-center gap-2">
             <span className="text-stone-300 font-bold uppercase text-xs flex items-center gap-1.5">
               <Flame className="w-3.5 h-3.5 text-amber-400" />
-              Historical Market Stress-Test Scenarios ({selectedScenarioIds.length}/{HISTORICAL_STRESS_SCENARIOS.length} Selected)
+              {onRunLiveBenchmark
+                ? `Held-Out Scenarios In This Skill's Field (${relevantLive.length})`
+                : `Historical Market Stress-Test Scenarios (${selectedScenarioIds.length}/${HISTORICAL_STRESS_SCENARIOS.length} Selected)`}
             </span>
           </div>
 
           <div className="flex items-center gap-2">
             <button
+              style={onRunLiveBenchmark ? { display: 'none' } : undefined}
               onClick={handleSelectAllScenarios}
               className="text-[11px] text-stone-400 hover:text-white transition-colors underline cursor-pointer"
             >
@@ -270,9 +401,35 @@ export const ChampionBenchmarkModule: React.FC<ChampionBenchmarkModuleProps> = (
           </div>
         </div>
 
-        {/* Scenario Selection Grid */}
+        {onRunLiveBenchmark && (
+          <div className="space-y-1.5">
+            {relevantLive.length === 0 ? (
+              <p className="text-amber-500/90 text-[11px]">
+                No held-out scenario covers this skill's vectors ({selectedSkill?.vectors.join(', ')}). It cannot be
+                benchmarked until scenarios exist for its field.
+              </p>
+            ) : (
+              <>
+                <p className="text-stone-500 text-[11px]">
+                  The engine runs every held-out scenario sharing a vector with this skill. Results count toward its
+                  promotion gate.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                  {relevantLive.map((sc) => (
+                    <div key={sc.id} className="border border-stone-800 bg-stone-900/50 px-2.5 py-1.5 flex justify-between gap-2">
+                      <span className="text-stone-300 truncate">{sc.shortName}</span>
+                      <span className="text-stone-600 shrink-0">{sc.difficulty}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Scenario Selection Grid — simulated benchmark only */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-          {HISTORICAL_STRESS_SCENARIOS.map((scen) => {
+          {(onRunLiveBenchmark ? [] : HISTORICAL_STRESS_SCENARIOS).map((scen) => {
             const isChecked = selectedScenarioIds.includes(scen.id);
             return (
               <div
@@ -330,14 +487,18 @@ export const ChampionBenchmarkModule: React.FC<ChampionBenchmarkModuleProps> = (
 
           <button
             onClick={handleExecuteBenchmark}
-            disabled={isRunningBenchmark || selectedScenarioIds.length === 0}
+            disabled={isRunningBenchmark || (onRunLiveBenchmark ? relevantLive.length === 0 : selectedScenarioIds.length === 0)}
             className="flex items-center justify-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-xs transition-all disabled:opacity-50 cursor-pointer shadow-lg shadow-amber-500/10"
           >
             <Play className={`w-4 h-4 fill-current ${isRunningBenchmark ? 'animate-spin' : ''}`} />
             <span>
-              {isRunningBenchmark
-                ? `Running Stress Test [${progressStep}/${selectedScenarioIds.length}] (${currentRunningScenarioName})...`
-                : `Run Stress-Test Benchmark (${selectedScenarioIds.length} Scenarios)`}
+              {onRunLiveBenchmark
+                ? isRunningBenchmark
+                  ? 'Executing against held-out scenarios — this takes a few minutes…'
+                  : `Run on ${relevantLive.length} held-out scenario${relevantLive.length === 1 ? '' : 's'} (${relevantLive.length * 2} model calls)`
+                : isRunningBenchmark
+                  ? `Running Stress Test [${progressStep}/${selectedScenarioIds.length}] (${currentRunningScenarioName})...`
+                  : `Run Stress-Test Benchmark (${selectedScenarioIds.length} Scenarios)`}
             </span>
           </button>
         </div>

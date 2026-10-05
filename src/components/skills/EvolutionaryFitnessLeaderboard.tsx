@@ -218,11 +218,11 @@ export const EvolutionaryFitnessLeaderboard: React.FC<EvolutionaryFitnessLeaderb
         {isFormulaExpanded && (
           <div className="p-4 bg-stone-950 border border-amber-900/60 mb-4 space-y-2 text-xs">
             <div className="flex items-center justify-between text-amber-300 font-bold uppercase text-[11px]">
-              <span>Multi-Objective Evolutionary Fitness Equation ($F_{\text{evo}}$)</span>
+              <span>{"Multi-Objective Evolutionary Fitness Equation ($F_{\\text{evo}}$)"}</span>
               <span className="text-stone-500">Auto-calculated in real time</span>
             </div>
             <div className="p-2.5 bg-stone-900 border border-stone-800 text-emerald-400 text-center text-sm font-bold tracking-wider">
-              $$F_{\text{evo}} = 0.40 \cdot \text{SuccessRate} + 0.35 \cdot \text{CognitiveEfficiency} + 0.25 \cdot \text{LatencyEfficiency}$$
+              {"$$F_{\\text{evo}} = 0.40 \\cdot \\text{SuccessRate} + 0.35 \\cdot \\text{CognitiveEfficiency} + 0.25 \\cdot \\text{LatencyEfficiency}$$"}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-[11px] text-stone-400 font-sans">
               <div>

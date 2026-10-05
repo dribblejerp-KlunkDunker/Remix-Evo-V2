@@ -1,7 +1,7 @@
 import React from 'react';
 import { AgentSkill } from '../../types/skills';
 import { SkillConflictPair } from '../../types/skillConflicts';
-import { Trophy, Shield, Cpu, Play, Eye, GitFork, CheckCircle, Activity, Sparkles, Sliders, AlertTriangle } from 'lucide-react';
+import { Trophy, Shield, Cpu, Play, Eye, GitFork, CheckCircle, Activity, Sparkles, Sliders, AlertTriangle, Scale, FlaskConical } from 'lucide-react';
 
 interface ChampionSkillsGridProps {
   championSkills: AgentSkill[];
@@ -14,6 +14,8 @@ interface ChampionSkillsGridProps {
   onSimulateMutation?: (skill: AgentSkill) => void;
   onOpenEvolutionHistory?: (skill: AgentSkill) => void;
   onViewConflict?: (conflictId: string) => void;
+  onCompareSkill?: (skill: AgentSkill) => void;
+  onOpenSandbox?: (skill: AgentSkill) => void;
 }
 
 export const ChampionSkillsGrid: React.FC<ChampionSkillsGridProps> = ({
@@ -26,7 +28,9 @@ export const ChampionSkillsGrid: React.FC<ChampionSkillsGridProps> = ({
   onViewLineageAudit,
   onSimulateMutation,
   onOpenEvolutionHistory,
-  onViewConflict
+  onViewConflict,
+  onCompareSkill,
+  onOpenSandbox
 }) => {
   return (
     <div className="space-y-4">
@@ -245,6 +249,28 @@ export const ChampionSkillsGrid: React.FC<ChampionSkillsGridProps> = ({
                     >
                       <Sliders className="w-3.5 h-3.5 text-amber-400" />
                       <span>Simulate Mutation</span>
+                    </button>
+                  )}
+
+                  {onCompareSkill && (
+                    <button
+                      onClick={() => onCompareSkill(skill)}
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 bg-amber-950/60 hover:bg-amber-900/80 text-amber-300 text-xs font-mono font-medium border border-amber-600/60 transition-colors"
+                      title="Compare side-by-side with another champion skill in Comparison Matrix"
+                    >
+                      <Scale className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Compare</span>
+                    </button>
+                  )}
+
+                  {onOpenSandbox && (
+                    <button
+                      onClick={() => onOpenSandbox(skill)}
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 bg-amber-950/80 hover:bg-amber-900 text-amber-200 text-xs font-mono font-medium border border-amber-500/70 transition-colors"
+                      title="Launch into Sandboxed Skill Simulator with custom parameters"
+                    >
+                      <FlaskConical className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Sandbox</span>
                     </button>
                   )}
 

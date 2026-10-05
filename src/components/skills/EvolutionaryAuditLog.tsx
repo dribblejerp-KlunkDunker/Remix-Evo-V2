@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { AgentSkill } from '../../types/skills';
+import { AgentSkill, ChampionEvolutionLineageAudit } from '../../types/skills';
 import {
   CHAMPION_EVOLUTION_AUDIT_LOGS,
   EVOLUTIONARY_AUDIT_STATS
@@ -38,6 +38,13 @@ import {
 
 interface EvolutionaryAuditLogProps {
   skills?: AgentSkill[];
+  audits?: ChampionEvolutionLineageAudit[];
+  auditStats?: {
+    totalAuditedChampions: number;
+    totalIterations: number;
+    averageMutationRate: number;
+    averagePerformanceDelta: number;
+  };
   selectedSkillId?: string;
   onInspectSkill?: (skill: AgentSkill) => void;
   onOpenRemixWithParents?: (parentNames: string[]) => void;
@@ -45,15 +52,21 @@ interface EvolutionaryAuditLogProps {
 
 export const EvolutionaryAuditLog: React.FC<EvolutionaryAuditLogProps> = ({
   skills = [],
+  audits,
+  auditStats,
   selectedSkillId,
   onInspectSkill,
   onOpenRemixWithParents
 }) => {
-  // State for logs (allowing live simulated mutations to add iterations)
-  const [auditLogs, setAuditLogs] = useState(CHAMPION_EVOLUTION_AUDIT_LOGS);
-  const [selectedChampionId, setSelectedChampionId] = useState<string>(
-    selectedSkillId || CHAMPION_EVOLUTION_AUDIT_LOGS[0].championId
-  );
+  const isLive = Array.isArray(audits);
+  // State for logs (allowing live simulated mutations to add iterations when offline)
+  const [localAuditLogs, setLocalAuditLogs] = useState(CHAMPION_EVOLUTION_AUDIT_LOGS);
+  const auditLogs = isLive ? audits : localAuditLogs;
+  const stats = auditStats || EVOLUTIONARY_AUDIT_STATS;
+  const [selectedChampionId, setSelectedChampionId] = useState<string>(() => {
+    if (selectedSkillId) return selectedSkillId;
+    return auditLogs.length > 0 ? auditLogs[0].championId : '';
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStageFilter, setSelectedStageFilter] = useState<'all' | 'idea' | 'training' | 'testing' | 'champion'>('all');
   const [expandedIterations, setExpandedIterations] = useState<Record<number, boolean>>({
@@ -69,6 +82,7 @@ export const EvolutionaryAuditLog: React.FC<EvolutionaryAuditLogProps> = ({
 
   // Active selected audit
   const activeAudit = useMemo(() => {
+    if (auditLogs.length === 0) return null;
     return (
       auditLogs.find((log) => log.championId === selectedChampionId) ||
       auditLogs[0]
@@ -90,6 +104,7 @@ export const EvolutionaryAuditLog: React.FC<EvolutionaryAuditLogProps> = ({
 
   // Filtered iterations within the active audit
   const displayedIterations = useMemo(() => {
+    if (!activeAudit) return [];
     if (selectedStageFilter === 'all') return activeAudit.iterations;
     return activeAudit.iterations.filter((iter) => iter.stage === selectedStageFilter);
   }, [activeAudit, selectedStageFilter]);
@@ -104,6 +119,7 @@ export const EvolutionaryAuditLog: React.FC<EvolutionaryAuditLogProps> = ({
 
   // Recharts Chart Data: Performance progression vs Mutation Percentage
   const chartData = useMemo(() => {
+    if (!activeAudit) return [];
     const points: any[] = [];
     // Initial Seed Point
     points.push({
@@ -131,6 +147,7 @@ export const EvolutionaryAuditLog: React.FC<EvolutionaryAuditLogProps> = ({
 
   // Simulate Evolutionary Step on active champion
   const handleSimulateMutationStep = async () => {
+    if (isLive || !activeAudit) return;
     setIsSimulatingMutation(true);
     await new Promise((r) => setTimeout(r, 700));
 
@@ -171,7 +188,7 @@ export const EvolutionaryAuditLog: React.FC<EvolutionaryAuditLogProps> = ({
       keyInsight: `Live evolutionary step achieved a +${deltaGain}% performance improvement delta with ${mutationPct}% prompt genome mutation.`
     };
 
-    setAuditLogs((prev) =>
+    setLocalAuditLogs((prev) =>
       prev.map((item) => {
         if (item.championId === activeAudit.championId) {
           const updatedIterations = [...item.iterations, newIteration];
@@ -278,16 +295,17 @@ export const EvolutionaryAuditLog: React.FC<EvolutionaryAuditLogProps> = ({
           <div className="flex items-center gap-3">
             <button
               onClick={handleSimulateMutationStep}
-              disabled={isSimulatingMutation}
-              className="flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-mono text-xs font-bold transition-all shadow-md"
+              disabled={isSimulatingMutation || isLive || !activeAudit}
+              title={isLive ? 'Simulation disabled when connected to live evolution engine' : undefined}
+              className="flex items-center gap-2 px-4 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white font-mono text-xs font-bold transition-all shadow-md cursor-pointer disabled:cursor-not-allowed"
             >
               <Cpu className={`w-4 h-4 ${isSimulatingMutation ? 'animate-spin' : ''}`} />
-              <span>{isSimulatingMutation ? 'Computing Mutation...' : 'Step Evolution Iteration'}</span>
+              <span>{isSimulatingMutation ? 'Computing Mutation...' : isLive ? 'Engine Active' : 'Step Evolution Iteration'}</span>
             </button>
 
             <button
               onClick={handleExportProvenance}
-              className="flex items-center gap-2 px-3.5 py-2.5 bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-200 font-mono text-xs transition-colors"
+              className="flex items-center gap-2 px-3.5 py-2.5 bg-stone-900 hover:bg-stone-800 border border-stone-700 text-stone-200 font-mono text-xs transition-colors cursor-pointer"
               title="Download reproducible provenance audit"
             >
               <Download className="w-4 h-4 text-stone-400" />
@@ -302,7 +320,7 @@ export const EvolutionaryAuditLog: React.FC<EvolutionaryAuditLogProps> = ({
             <div className="text-[10px] text-stone-500 uppercase tracking-wider">Audited Champions</div>
             <div className="text-lg font-bold text-amber-400 flex items-center gap-1.5 mt-0.5">
               <Trophy className="w-4 h-4" />
-              <span>{EVOLUTIONARY_AUDIT_STATS.totalAuditedChampions}</span>
+              <span>{stats.totalAuditedChampions}</span>
             </div>
             <div className="text-[10px] text-stone-500">100% ≥ 95.0% Gate</div>
           </div>
@@ -312,7 +330,9 @@ export const EvolutionaryAuditLog: React.FC<EvolutionaryAuditLogProps> = ({
             <div className="text-lg font-bold text-white flex items-center gap-1.5 mt-0.5">
               <History className="w-4 h-4 text-purple-400" />
               <span>
-                {auditLogs.reduce((acc, curr) => acc + curr.iterations.length, 0)}
+                {('totalIterations' in stats && stats.totalIterations != null)
+                  ? stats.totalIterations
+                  : auditLogs.reduce((acc, curr) => acc + curr.iterations.length, 0)}
               </span>
             </div>
             <div className="text-[10px] text-stone-500">Recorded Lineage Epochs</div>
@@ -322,7 +342,7 @@ export const EvolutionaryAuditLog: React.FC<EvolutionaryAuditLogProps> = ({
             <div className="text-[10px] text-stone-500 uppercase tracking-wider">Avg Mutation Rate</div>
             <div className="text-lg font-bold text-purple-400 flex items-center gap-1 mt-0.5">
               <Sparkles className="w-4 h-4" />
-              <span>{EVOLUTIONARY_AUDIT_STATS.averageMutationRate}%</span>
+              <span>{stats.averageMutationRate}%</span>
             </div>
             <div className="text-[10px] text-stone-500">Decays as skill stabilizes</div>
           </div>
@@ -331,7 +351,7 @@ export const EvolutionaryAuditLog: React.FC<EvolutionaryAuditLogProps> = ({
             <div className="text-[10px] text-stone-500 uppercase tracking-wider">Avg Δ Gain / Iter</div>
             <div className="text-lg font-bold text-emerald-400 flex items-center gap-1 mt-0.5">
               <TrendingUp className="w-4 h-4" />
-              <span>+{EVOLUTIONARY_AUDIT_STATS.averagePerformanceDelta}%</span>
+              <span>+{stats.averagePerformanceDelta}%</span>
             </div>
             <div className="text-[10px] text-stone-500">Empirical Fitness Delta</div>
           </div>

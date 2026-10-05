@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   ResponsiveContainer,
   ScatterChart,
@@ -37,28 +37,55 @@ import {
 interface AgentScenarioHeatmapProps {
   onSelectSpecialist?: (specialistName: string) => void;
   onRunScenarioTest?: (point: ScenarioHeatmapPoint) => void;
+  /**
+   * Live data from the evolution engine. When omitted the component falls back
+   * to the bundled seed arrays, so it still renders with no engine behind it.
+   */
+  data?: ScenarioHeatmapPoint[];
+  scenarios?: ScenarioDefinition[];
+  specialists?: { id: string; name: string; vector: string; stage: string }[];
 }
 
 export const AgentScenarioHeatmap: React.FC<AgentScenarioHeatmapProps> = ({
   onSelectSpecialist,
-  onRunScenarioTest
+  onRunScenarioTest,
+  data,
+  scenarios,
+  specialists
 }) => {
-  const [selectedPoint, setSelectedPoint] = useState<ScenarioHeatmapPoint | null>(HEATMAP_DATA[0]);
+  // Live data when the engine supplied it, seed arrays otherwise. An engine that
+  // is connected but has not evaluated anything yet legitimately returns an
+  // empty grid — that is "nothing tested yet", not a reason to show fake rows.
+  const isLive = Array.isArray(data);
+  const heatmapData = isLive ? data! : HEATMAP_DATA;
+  const scenarioDefs = scenarios && scenarios.length > 0 ? scenarios : SCENARIO_DEFINITIONS;
+  const specialistList = specialists && specialists.length > 0
+    ? specialists
+    : SPECIALIST_TYPES.map((s: any) => ({ id: s.id ?? s.name, name: s.name, vector: s.vector, stage: 'baseline' }));
+
+  const [selectedPoint, setSelectedPoint] = useState<ScenarioHeatmapPoint | null>(heatmapData[0] ?? null);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [filterMinScore, setFilterMinScore] = useState<number>(0);
   const [viewMode, setViewMode] = useState<'matrix' | 'barchart'>('matrix');
-  const [selectedScenarioForBar, setSelectedScenarioForBar] = useState<string>(SCENARIO_DEFINITIONS[0].id);
+  const [selectedScenarioForBar, setSelectedScenarioForBar] = useState<string>(scenarioDefs[0]?.id ?? '');
+
+  // Live data streams in after mount, so re-anchor the selections once it lands
+  // rather than leaving the detail pane pinned to a stale or empty row.
+  useEffect(() => {
+    if (!selectedPoint && heatmapData.length > 0) setSelectedPoint(heatmapData[0]);
+    if (!selectedScenarioForBar && scenarioDefs.length > 0) setSelectedScenarioForBar(scenarioDefs[0].id);
+  }, [heatmapData, scenarioDefs, selectedPoint, selectedScenarioForBar]);
 
   // Extract scenario categories
   const categories = useMemo(() => {
     const set = new Set<string>();
-    SCENARIO_DEFINITIONS.forEach((s) => set.add(s.category));
+    scenarioDefs.forEach((s) => set.add(s.category));
     return Array.from(set);
   }, []);
 
   // Filtered heatmap data
   const filteredData = useMemo(() => {
-    return HEATMAP_DATA.filter((point) => {
+    return heatmapData.filter((point) => {
       const matchesCategory =
         selectedCategory === 'all' || point.scenarioCategory === selectedCategory;
       const matchesScore = point.successRate >= filterMinScore;
@@ -67,10 +94,10 @@ export const AgentScenarioHeatmap: React.FC<AgentScenarioHeatmapProps> = ({
   }, [selectedCategory, filterMinScore]);
 
   // Map coordinates for Recharts ScatterChart Heatmap
-  const specialistNames = useMemo(() => SPECIALIST_TYPES.map((s) => s.name), []);
+  const specialistNames = useMemo(() => specialistList.map((s) => s.name), [specialistList]);
   const scenarioNames = useMemo(
     () =>
-      SCENARIO_DEFINITIONS.filter(
+      scenarioDefs.filter(
         (s) => selectedCategory === 'all' || s.category === selectedCategory
       ).map((s) => s.shortName),
     [selectedCategory]
@@ -87,7 +114,7 @@ export const AgentScenarioHeatmap: React.FC<AgentScenarioHeatmapProps> = ({
 
   // Data for the scenario comparison BarChart view
   const barChartData = useMemo(() => {
-    const pointsForScenario = HEATMAP_DATA.filter((d) => d.scenarioId === selectedScenarioForBar);
+    const pointsForScenario = heatmapData.filter((d) => d.scenarioId === selectedScenarioForBar);
     return pointsForScenario
       .map((d) => ({
         specialist: d.specialistName,
@@ -252,8 +279,7 @@ export const AgentScenarioHeatmap: React.FC<AgentScenarioHeatmapProps> = ({
         </div>
 
         <div className="p-3 bg-stone-950 border border-stone-800">
-          <div className="text-[10px] text-stone-500 uppercase">Total Stress Test Runs</div>
-          <div className="text-lg font-bold text-stone-200 mt-0.5">6,720 Runs</div>
+          <div className="text-[10px] text-stone-200 mt-0.5">6,720 Runs</div>
           <div className="text-[10px] text-stone-400">0.0% Hallucination Tolerance</div>
         </div>
       </div>
@@ -273,7 +299,7 @@ export const AgentScenarioHeatmap: React.FC<AgentScenarioHeatmapProps> = ({
                 : 'text-stone-400 hover:text-stone-200 border border-transparent'
             }`}
           >
-            All Scenarios ({SCENARIO_DEFINITIONS.length})
+            All Scenarios ({scenarioDefs.length})
           </button>
           {categories.map((cat) => (
             <button
@@ -418,7 +444,7 @@ export const AgentScenarioHeatmap: React.FC<AgentScenarioHeatmapProps> = ({
                   onChange={(e) => setSelectedScenarioForBar(e.target.value)}
                   className="bg-stone-900 border border-stone-700 text-xs font-mono text-white p-1.5 focus:outline-none focus:border-stone-500"
                 >
-                  {SCENARIO_DEFINITIONS.map((s) => (
+                  {scenarioDefs.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name} ({s.category})
                     </option>

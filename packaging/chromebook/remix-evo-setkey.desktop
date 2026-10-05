@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Remix Evo - Set Gemini API Key
+Comment=Set or update GEMINI_API_KEY for Remix Evo
+Exec=/usr/bin/remix-evo setkey
+Icon=remix-evo
+Terminal=true
+Type=Application
+Categories=Development;
+StartupNotify=false

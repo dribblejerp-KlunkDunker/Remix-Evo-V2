@@ -1,0 +1,271 @@
+#!/bin/sh
+set -eu
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/remix-evo"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/remix-evo"
+CONFIG_FILE="$CONFIG_DIR/env"
+PID_FILE="$DATA_DIR/remix-evo.pid"
+LOG_FILE="$DATA_DIR/server.log"
+APP_DIR="/opt/remix-evo/app"
+NODE_BIN="/opt/remix-evo/node/bin/node"
+
+if [ ! -x "$NODE_BIN" ]; then
+  NODE_BIN="$(command -v node || true)"
+fi
+
+init_config() {
+  if [ ! -f "$CONFIG_FILE" ]; then
+    mkdir -p "$CONFIG_DIR"
+    (
+      umask 077
+      TOKEN="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
+      cat <<EOF > "$CONFIG_FILE"
+# Remix Evo Environment Settings
+GEMINI_API_KEY=
+PORT=7317
+EVOLUTION_API_TOKEN=$TOKEN
+EVOLUTION_AUTOSTART=false
+EVOLUTION_MAX_CALLS_PER_HOUR=240
+EOF
+      chmod 600 "$CONFIG_FILE"
+    )
+  fi
+}
+
+load_config() {
+  init_config
+  set -a
+  # shellcheck disable=SC1090
+  . "$CONFIG_FILE"
+  set +a
+
+  if [ -z "${NODE_EXTRA_CA_CERTS:-}" ] && [ -r "/etc/ssl/certs/ca-certificates.crt" ]; then
+    export NODE_EXTRA_CA_CERTS="/etc/ssl/certs/ca-certificates.crt"
+  fi
+}
+
+is_running() {
+  if [ -f "$PID_FILE" ]; then
+    PID="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+      if [ -r "/proc/$PID/cmdline" ] && grep -q "server\.cjs" "/proc/$PID/cmdline" 2>/dev/null; then
+        return 0
+      fi
+    fi
+  fi
+  return 1
+}
+
+start_server() {
+  load_config
+  if is_running; then
+    return 0
+  fi
+
+  mkdir -p "$DATA_DIR"
+  cd "$DATA_DIR"
+
+  if [ -d "$APP_DIR/dist" ] && [ ! -e "$DATA_DIR/dist" ]; then
+    ln -s "$APP_DIR/dist" "$DATA_DIR/dist" 2>/dev/null || true
+  fi
+  if [ -d "$APP_DIR/agent" ] && [ ! -e "$DATA_DIR/agent" ]; then
+    ln -s "$APP_DIR/agent" "$DATA_DIR/agent" 2>/dev/null || true
+  fi
+
+  SERVER_SCRIPT="$APP_DIR/server.cjs"
+  if [ ! -f "$SERVER_SCRIPT" ]; then
+    SERVER_SCRIPT="./dist/server.cjs"
+  fi
+
+  PORT="${PORT:-7317}"
+  NODE_ENV=production nohup "$NODE_BIN" "$SERVER_SCRIPT" >> "$LOG_FILE" 2>&1 &
+  PID="$!"
+  echo "$PID" > "$PID_FILE"
+
+  # Poll health up to 25s
+  ELAPSED=0
+  while [ "$ELAPSED" -lt 25 ]; do
+    if "$NODE_BIN" -e "fetch('http://127.0.0.1:${PORT}/').then(r => process.exit(0)).catch(() => process.exit(1))" 2>/dev/null; then
+      return 0
+    fi
+    sleep 1
+    ELAPSED=$((ELAPSED + 1))
+  done
+
+  echo "Server start timed out after 25 seconds. Last 20 lines of log:" >&2
+  tail -n 20 "$LOG_FILE" >&2 || true
+  return 1
+}
+
+stop_server() {
+  if is_running; then
+    PID="$(cat "$PID_FILE")"
+    echo "Stopping Remix Evo (PID $PID)..."
+    kill "$PID" 2>/dev/null || true
+    WAIT=0
+    while kill -0 "$PID" 2>/dev/null && [ "$WAIT" -lt 10 ]; do
+      sleep 1
+      WAIT=$((WAIT + 1))
+    done
+    if kill -0 "$PID" 2>/dev/null; then
+      kill -9 "$PID" 2>/dev/null || true
+    fi
+    rm -f "$PID_FILE"
+    echo "Remix Evo stopped."
+  else
+    echo "Remix Evo is not running."
+    rm -f "$PID_FILE"
+  fi
+}
+
+open_browser() {
+  load_config
+  start_server
+
+  URL="http://localhost:${PORT:-7317}/#operator=${EVOLUTION_API_TOKEN:-}"
+
+  echo "========================================================"
+  echo "  Remix Evo Autonomous Agent Lab is Running!"
+  echo "  URL: $URL"
+  echo "========================================================"
+
+  if [ -z "${GEMINI_API_KEY:-}" ]; then
+    echo "NOTICE: GEMINI_API_KEY is not set yet. Run 'remix-evo setkey' to configure it." >&2
+  fi
+
+  if [ -n "${BROWSER:-}" ] && command -v "$BROWSER" >/dev/null 2>&1; then
+    "$BROWSER" "$URL" &
+  elif command -v garcon-url-handler >/dev/null 2>&1; then
+    garcon-url-handler "$URL" &
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$URL" >/dev/null 2>&1 &
+  fi
+}
+
+set_key() {
+  load_config
+  printf "Enter your GEMINI_API_KEY: "
+  stty -echo
+  read -r NEW_KEY
+  stty echo
+  echo ""
+
+  CLEAN_KEY="$(echo "$NEW_KEY" | tr -d '[:space:]')"
+
+  TMP_CONF="$CONFIG_FILE.tmp.$$"
+  (
+    umask 077
+    grep -v "^GEMINI_API_KEY=" "$CONFIG_FILE" > "$TMP_CONF" || true
+    echo "GEMINI_API_KEY=$CLEAN_KEY" >> "$TMP_CONF"
+    mv "$TMP_CONF" "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
+  )
+
+  echo "GEMINI_API_KEY updated successfully."
+  load_config
+
+  if is_running; then
+    echo "Restarting Remix Evo server to apply new key..."
+    stop_server
+    start_server
+    echo "Server restarted."
+  fi
+}
+
+run_preflight() {
+  load_config
+  PREFLIGHT_SCRIPT="$APP_DIR/preflight.cjs"
+  if [ ! -f "$PREFLIGHT_SCRIPT" ]; then
+    PREFLIGHT_SCRIPT="./server/evolution/preflight.ts"
+    npx tsx "$PREFLIGHT_SCRIPT"
+  else
+    "$NODE_BIN" "$PREFLIGHT_SCRIPT"
+  fi
+}
+
+cmd="${1:-open}"
+
+case "$cmd" in
+  open)
+    open_browser
+    ;;
+  start)
+    start_server
+    echo "Remix Evo started on port ${PORT:-7317}."
+    ;;
+  stop)
+    stop_server
+    ;;
+  status)
+    load_config
+    if is_running; then
+      echo "Status: RUNNING (PID $(cat "$PID_FILE"), Port ${PORT:-7317})"
+    else
+      echo "Status: STOPPED"
+    fi
+    if [ -n "${GEMINI_API_KEY:-}" ]; then
+      echo "GEMINI_API_KEY: Configured"
+    else
+      echo "GEMINI_API_KEY: NOT CONFIGURED (run 'remix-evo setkey')"
+    fi
+    ;;
+  setkey)
+    set_key
+    ;;
+  preflight)
+    run_preflight
+    ;;
+  logs)
+    mkdir -p "$DATA_DIR"
+    touch "$LOG_FILE"
+    tail -f "$LOG_FILE"
+    ;;
+  config)
+    load_config
+    echo "Config file: $CONFIG_FILE"
+    echo "PORT: ${PORT:-7317}"
+    echo "EVOLUTION_AUTOSTART: ${EVOLUTION_AUTOSTART:-false}"
+    echo "EVOLUTION_MAX_CALLS_PER_HOUR: ${EVOLUTION_MAX_CALLS_PER_HOUR:-240}"
+    if [ -n "${GEMINI_API_KEY:-}" ]; then
+      echo "GEMINI_API_KEY: ******** (${#GEMINI_API_KEY} chars)"
+    else
+      echo "GEMINI_API_KEY: (not set)"
+    fi
+    echo "EVOLUTION_API_TOKEN: ******** (${#EVOLUTION_API_TOKEN} chars)"
+    ;;
+  doctor)
+    load_config
+    echo "========================================================"
+    echo "  Remix Evo System Diagnostics & Health Check"
+    echo "========================================================"
+    echo "OS / Architecture: $(uname -s) $(uname -m)"
+    echo "Node Binary: $NODE_BIN"
+    if [ -x "$NODE_BIN" ]; then
+      echo "Node Version: $("$NODE_BIN" -v 2>/dev/null || echo 'active')"
+    else
+      echo "Node Version: [MISSING / NOT EXECUTABLE]"
+    fi
+    echo "App Directory: $APP_DIR"
+    echo "Config File: $CONFIG_FILE"
+    echo "Data Directory: $DATA_DIR"
+    echo "Configured Port: ${PORT:-7317}"
+    if [ -n "${GEMINI_API_KEY:-}" ]; then
+      echo "GEMINI_API_KEY: Configured (${#GEMINI_API_KEY} characters)"
+    else
+      echo "GEMINI_API_KEY: Not configured (run 'remix-evo setkey')"
+    fi
+    if is_running; then
+      echo "Daemon Status: RUNNING (PID $(cat "$PID_FILE" 2>/dev/null || true))"
+    else
+      echo "Daemon Status: STOPPED"
+    fi
+    echo "========================================================"
+    ;;
+  version|--version|-v)
+    echo "Remix Evo v0.2.0"
+    ;;
+  *)
+    echo "Usage: remix-evo {open|start|stop|status|setkey|preflight|logs|config|doctor|version}"
+    exit 1
+    ;;
+esac

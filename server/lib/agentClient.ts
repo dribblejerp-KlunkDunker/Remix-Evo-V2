@@ -11,6 +11,14 @@ import fs from 'fs';
 export interface InteractionOptions {
   prompt: string;
   agentName?: string;
+  /**
+   * Model backing the agent. Defaults to gemini-3.5-flash.
+   *
+   * This exists because agentClientPerseus.ts was a 360-line copy of this file
+   * differing on exactly one line: the model string. Two copies of a network
+   * client is two places for a fix to be forgotten.
+   */
+  model?: string;
   environmentId?: string;
   previousInteractionId?: string;
   stream?: boolean;
@@ -58,7 +66,7 @@ export async function createInteraction(
     agent: agentName,
     agent_config: {
       type: "antigravity",
-      model: "gemini-3.5-flash"
+      model: opts.model ?? "gemini-3.5-flash"
     },
     input: [
       {

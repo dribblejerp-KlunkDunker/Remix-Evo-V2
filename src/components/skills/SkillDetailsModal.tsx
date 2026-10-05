@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { AgentSkill, SkillTestCase } from '../../types/skills';
-import { X, Play, ShieldAlert, Cpu, CheckCircle2, History, GitFork, ArrowRight, Loader2, Sparkles, AlertCircle, Sliders, Network } from 'lucide-react';
+import { AgentSkill, SkillTestCase, SkillAttachedFile } from '../../types/skills';
+import { SkillFileDropzone } from './SkillFileDropzone';
+import { X, Play, ShieldAlert, Cpu, CheckCircle2, History, GitFork, ArrowRight, Loader2, Sparkles, AlertCircle, Sliders, Network, FileText, Dna } from 'lucide-react';
 
 interface SkillDetailsModalProps {
   skill: AgentSkill | null;
@@ -11,8 +12,12 @@ interface SkillDetailsModalProps {
   onOpenMutationSimulator?: (skill: AgentSkill) => void;
   onOpenForceGraph?: (skill: AgentSkill) => void;
   onOpenEvolutionHistory?: (skill: AgentSkill) => void;
+  onOpenGenomeEditor?: (skill: AgentSkill) => void;
+  onAttachFilesToSkill?: (skillId: string, files: SkillAttachedFile[]) => void;
+  onRemoveFileFromSkill?: (skillId: string, fileId: string) => void;
+  onApplyRulesToSkill?: (skillId: string, rules: string[]) => void;
   initialScenario?: string;
-  initialTab?: 'overview' | 'testrunner' | 'rules' | 'lineage';
+  initialTab?: 'overview' | 'testrunner' | 'rules' | 'lineage' | 'files';
 }
 
 export const SkillDetailsModal: React.FC<SkillDetailsModalProps> = ({
@@ -24,12 +29,16 @@ export const SkillDetailsModal: React.FC<SkillDetailsModalProps> = ({
   onOpenMutationSimulator,
   onOpenForceGraph,
   onOpenEvolutionHistory,
+  onOpenGenomeEditor,
+  onAttachFilesToSkill,
+  onRemoveFileFromSkill,
+  onApplyRulesToSkill,
   initialScenario,
   initialTab
 }) => {
   if (!skill) return null;
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'testrunner' | 'rules' | 'lineage'>(
+  const [activeTab, setActiveTab] = useState<'overview' | 'testrunner' | 'rules' | 'lineage' | 'files'>(
     initialTab || 'overview'
   );
   const [selectedTestCase, setSelectedTestCase] = useState<SkillTestCase | null>(
@@ -153,6 +162,17 @@ export const SkillDetailsModal: React.FC<SkillDetailsModalProps> = ({
           >
             <GitFork className="w-3 h-3 text-purple-400" />
             <span>Lineage & Evolution History</span>
+          </button>
+          <button
+            onClick={() => setActiveTab('files')}
+            className={`py-3 px-4 border-b-2 font-medium transition-colors flex items-center gap-1.5 ${
+              activeTab === 'files'
+                ? 'border-amber-400 text-amber-300 font-bold'
+                : 'border-transparent text-stone-400 hover:text-stone-200'
+            }`}
+          >
+            <FileText className="w-3 h-3 text-amber-400" />
+            <span>Files & Docs (.txt, .md, .pdf) ({skill.attachedFiles?.length || 0})</span>
           </button>
         </div>
 
@@ -472,6 +492,17 @@ export const SkillDetailsModal: React.FC<SkillDetailsModalProps> = ({
               </div>
             </div>
           )}
+
+          {activeTab === 'files' && (
+            <SkillFileDropzone
+              skills={[skill]}
+              selectedSkillId={skill.id}
+              isEmbedded={true}
+              onAttachFilesToSkill={onAttachFilesToSkill || (() => {})}
+              onRemoveFileFromSkill={onRemoveFileFromSkill || (() => {})}
+              onApplyRulesToSkill={onApplyRulesToSkill}
+            />
+          )}
         </div>
 
         {/* Modal Footer */}
@@ -504,6 +535,19 @@ export const SkillDetailsModal: React.FC<SkillDetailsModalProps> = ({
               >
                 <Network className="w-3.5 h-3.5 text-cyan-400" />
                 <span>View in Force Graph</span>
+              </button>
+            )}
+            {onOpenGenomeEditor && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenGenomeEditor(skill);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-950/70 hover:bg-purple-900 text-purple-300 border border-purple-800 transition-colors"
+                title="Launch Genome Editor to directly edit directives and invariant rules"
+              >
+                <Dna className="w-3.5 h-3.5 text-purple-400" />
+                <span>Open in Genome Editor</span>
               </button>
             )}
             {onOpenMutationSimulator && (

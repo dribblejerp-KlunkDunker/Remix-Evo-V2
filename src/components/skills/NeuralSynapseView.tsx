@@ -35,6 +35,8 @@ import {
   Layers,
   Send
 } from 'lucide-react';
+import { LineageGraphView } from './LineageGraphView';
+import type { LineageGraph } from '../../../server/evolution/lineageGraph';
 
 export interface NeuralSynapseViewProps {
   skills: AgentSkill[];
@@ -42,9 +44,26 @@ export interface NeuralSynapseViewProps {
   onCloseOverlay?: () => void;
   onInspectSkill?: (skill: AgentSkill) => void;
   className?: string;
+  lineageGraph?: LineageGraph | null;
 }
 
-export const NeuralSynapseView: React.FC<NeuralSynapseViewProps> = ({
+export const NeuralSynapseView: React.FC<NeuralSynapseViewProps> = (props) => {
+  if (props.lineageGraph) {
+    return (
+      <LineageGraphView
+        lineageGraph={props.lineageGraph}
+        skills={props.skills}
+        isOpenAsOverlay={props.isOpenAsOverlay}
+        onCloseOverlay={props.onCloseOverlay}
+        onInspectSkill={props.onInspectSkill}
+        className={props.className}
+      />
+    );
+  }
+  return <SimulatedNeuralSynapseView {...props} />;
+};
+
+const SimulatedNeuralSynapseView: React.FC<NeuralSynapseViewProps> = ({
   skills,
   isOpenAsOverlay = false,
   onCloseOverlay,

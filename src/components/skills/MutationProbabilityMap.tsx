@@ -29,6 +29,10 @@ import {
   Minimize2
 } from 'lucide-react';
 
+import { MutationEffectivenessView } from './MutationEffectivenessView';
+import type { MutationOutcomeProjection } from '../../../server/evolution/projections';
+import type { LineageGraph } from '../../../server/evolution/lineageGraph';
+
 export interface MutationProbabilityMapProps {
   skills: AgentSkill[];
   isOpenAsOverlay?: boolean;
@@ -36,12 +40,53 @@ export interface MutationProbabilityMapProps {
   onInitiateMutation?: (parentA: AgentSkill, parentB: AgentSkill) => void;
   onInspectSkill?: (skill: AgentSkill) => void;
   className?: string;
+  measured?: {
+    outcomes: MutationOutcomeProjection[];
+    lineageGraph: LineageGraph | null;
+  };
 }
 
 type StageFilter = 'all' | 'incubator' | 'champions_vs_pipeline';
 type MatrixViewMode = 'heatmap' | 'candidates' | 'hotspots';
 
-export const MutationProbabilityMap: React.FC<MutationProbabilityMapProps> = ({
+export const MutationProbabilityMap: React.FC<MutationProbabilityMapProps> = (props) => {
+  if (props.measured) {
+    const content = (
+      <MutationEffectivenessView
+        outcomes={props.measured.outcomes}
+        lineageGraph={props.measured.lineageGraph}
+        skills={props.skills}
+        onInspectSkill={props.onInspectSkill}
+        className={props.className}
+      />
+    );
+
+    if (props.isOpenAsOverlay) {
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-950/85 backdrop-blur-xs">
+          <div className="w-full max-w-6xl max-h-[92vh] overflow-y-auto bg-stone-900 border border-stone-700 shadow-2xl p-6 relative">
+            <div className="flex justify-end mb-2">
+              <button
+                onClick={props.onCloseOverlay}
+                className="z-50 p-1.5 bg-stone-800 hover:bg-stone-700 text-stone-300 hover:text-white border border-stone-600 cursor-pointer"
+                title="Close overlay"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {content}
+          </div>
+        </div>
+      );
+    }
+
+    return content;
+  }
+
+  return <HeuristicMutationMap {...props} />;
+};
+
+const HeuristicMutationMap: React.FC<MutationProbabilityMapProps> = ({
   skills,
   isOpenAsOverlay = false,
   onCloseOverlay,

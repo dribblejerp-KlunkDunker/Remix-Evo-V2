@@ -1,6 +1,6 @@
 import React from 'react';
 import { SkillEvolutionStage, EvolutionStats } from '../../types/skills';
-import { Lightbulb, Wrench, FlaskConical, Trophy, ArrowRight, Activity, Flame, ShieldCheck, Network, GitFork } from 'lucide-react';
+import { Lightbulb, Wrench, FlaskConical, Trophy, ArrowRight, Activity, Flame, ShieldCheck, Network, GitFork, TrendingUp } from 'lucide-react';
 
 interface SkillEvolutionCycleProps {
   stats: EvolutionStats;
@@ -10,6 +10,7 @@ interface SkillEvolutionCycleProps {
   isSimulating?: boolean;
   onOpenForceGraph?: () => void;
   onOpenEvolutionHistory?: () => void;
+  onOpenMetrics?: () => void;
 }
 
 export const SkillEvolutionCycle: React.FC<SkillEvolutionCycleProps> = ({
@@ -19,7 +20,8 @@ export const SkillEvolutionCycle: React.FC<SkillEvolutionCycleProps> = ({
   onSimulateTick,
   isSimulating = false,
   onOpenForceGraph,
-  onOpenEvolutionHistory
+  onOpenEvolutionHistory,
+  onOpenMetrics,
 }) => {
   const stages: {
     key: SkillEvolutionStage;
@@ -124,6 +126,17 @@ export const SkillEvolutionCycle: React.FC<SkillEvolutionCycleProps> = ({
 
         {/* Action button & overall metrics */}
         <div className="flex items-center gap-3 self-start md:self-auto shrink-0 flex-wrap">
+          {onOpenMetrics && (
+            <button
+              onClick={onOpenMetrics}
+              className="flex items-center gap-2 px-3 py-2 text-xs font-mono font-medium text-emerald-300 bg-emerald-950/40 hover:bg-emerald-900/50 border border-emerald-700/60 hover:border-emerald-500 transition-all shadow-[0_0_15px_rgba(16,185,129,0.15)]"
+              title="Open Recharts visual metrics tracking Idea, Training, Testing, and Champion counts over time"
+            >
+              <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Over-Time Metrics</span>
+            </button>
+          )}
+
           {onOpenForceGraph && (
             <button
               onClick={onOpenForceGraph}

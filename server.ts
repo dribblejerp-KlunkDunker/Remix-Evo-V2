@@ -1,12 +1,17 @@
 import "dotenv/config";
 import express from "express";
-import { createServer as createViteServer } from "vite";
+// vite is loaded on demand in the dev branch below. A top-level import made the
+// production server require the entire build toolchain just to start.
 import path from "path";
 import fs from "fs";
 import { GoogleGenAI } from "@google/genai";
 
 import { createInteraction, streamInteraction } from "./server/lib/agentClient.ts";
 import { createInteraction as createInteractionPerseus, streamInteraction as streamInteractionPerseus } from "./server/lib/agentClientPerseus.ts";
+import { multiProviderLlm } from "./server/lib/multiProviderLlm.ts";
+import { EvolutionEngine } from "./server/evolution/engine.ts";
+import { safeJoin, parseTicker, rateLimit, UnsafePathError } from "./server/lib/security.ts";
+import { registerEvolutionRoutes } from "./server/evolution/routes.ts";
 
 function loadAgentFiles(dir: string, basePath: string): Array<{type: string, content: string, target: string}> {
   let files: Array<{type: string, content: string, target: string}> = [];
@@ -33,9 +38,16 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-  app.use(express.json({ limit: '50mb' }));
+  // 50mb on every JSON route invited memory exhaustion on endpoints that take a
+  // ticker and a sentence. The one route that legitimately takes large bodies
+  // (artifact upload) sets its own raw limit.
+  app.use(express.json({ limit: '256kb' }));
+  app.set('trust proxy', true);
 
-  app.post("/api/tts", async (req, res) => {
+  const spendLimit = rateLimit({ windowMs: 60_000, max: 120, name: 'model-backed endpoints' });
+  const uploadLimit = rateLimit({ windowMs: 60_000, max: 120, name: 'uploads' });
+
+  app.post("/api/tts", spendLimit, async (req, res) => {
     try {
       const { text } = req.body;
       if (!text) {
@@ -124,27 +136,90 @@ async function startServer() {
     }
   });
 
+  app.get("/api/providers", (req, res) => {
+    res.json({
+      providers: multiProviderLlm.getProvidersList(),
+      activeProvider: process.env.ACTIVE_LLM_PROVIDER || 'gemini',
+      activeModel: process.env.ACTIVE_LLM_MODEL || 'gemini-3.8-flash'
+    });
+  });
 
-  app.post("/api/upload_artifact", express.raw({ type: '*/*', limit: '50mb' }), (req, res) => {
+  app.post("/api/models/test", spendLimit, async (req, res) => {
     try {
-        const fileName = req.query.name || 'podcast_briefing.wav';
+      const { provider, model, prompt } = req.body;
+      const result = await multiProviderLlm.generateText({
+        provider,
+        model,
+        prompt: prompt || 'Verify model operational readiness in 1 concise sentence.',
+        maxTokens: 120
+      });
+      res.json({
+        success: true,
+        text: result.text,
+        telemetry: result.telemetry
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Model test failed' });
+    }
+  });
+
+  app.get("/api/download/deb", (req, res) => {
+    const candidatePaths = [
+      path.join(process.cwd(), 'remix-evo_0.2.0_amd64.deb'),
+      path.join(process.cwd(), 'dist', 'remix-evo_0.2.0_amd64.deb'),
+      path.join('/app/applet', 'remix-evo_0.2.0_amd64.deb'),
+    ];
+    const foundPath = candidatePaths.find((p) => fs.existsSync(p));
+    if (foundPath) {
+      res.download(foundPath, 'remix-evo_0.2.0_amd64.deb');
+    } else {
+      res.status(404).json({ error: 'Debian package not found. Run npm run build:chromebook first.' });
+    }
+  });
+
+  app.get("/api/download/desktop-bundle", (req, res) => {
+    const zipPath = path.join(process.cwd(), 'dist', 'remix-evo-desktop.zip');
+    if (fs.existsSync(zipPath)) {
+      res.download(zipPath, 'remix-evo-desktop.zip');
+    } else {
+      res.status(404).json({ error: 'Desktop bundle not found.' });
+    }
+  });
+
+
+  app.post("/api/upload_artifact", uploadLimit, express.raw({ type: '*/*', limit: '50mb' }), (req, res) => {
+    try {
         const localArtifactsDir = path.join(process.cwd(), 'workspace', 'artifacts');
+        // Previously `path.join(dir, req.query.name)` — `?name=../../server.ts`
+        // overwrote source files. safeJoin refuses separators, dot-segments and
+        // anything resolving outside the artifacts directory.
+        const target = safeJoin(
+          localArtifactsDir,
+          req.query.name ?? 'podcast_briefing.wav',
+          ['.wav', '.mp3', '.ogg', '.json', '.txt', '.md', '.png', '.jpg', '.pdf'],
+        );
         if (!fs.existsSync(localArtifactsDir)) {
             fs.mkdirSync(localArtifactsDir, { recursive: true });
         }
-        fs.writeFileSync(path.join(localArtifactsDir, fileName as string), req.body);
-        console.log(`[upload] Successfully saved ${fileName} (${req.body.length} bytes)`);
+        if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+            return res.status(400).json({ error: "Empty upload." });
+        }
+        fs.writeFileSync(target, req.body);
+        console.log(`[upload] Saved ${path.basename(target)} (${req.body.length} bytes)`);
         res.json({ success: true });
     } catch (e) {
+        if (e instanceof UnsafePathError) {
+            return res.status(400).json({ error: e.message });
+        }
         console.error("[upload] Error:", e);
-        res.status(500).json({ error: String(e) });
+        res.status(500).json({ error: "Upload failed." });
     }
   });
 
   app.get("/api/download_jsonl", (req, res) => {
-    const ticker = req.query.ticker;
+    const ticker = parseTicker(req.query.ticker);
     if (!ticker) {
-      return res.status(400).send("Missing ticker");
+      return res.status(400).send("Missing or invalid ticker");
     }
     
     const runLogsDir = path.join(process.cwd(), 'run_logs');
@@ -172,11 +247,14 @@ async function startServer() {
     res.download(latestFile);
   });
 
-  app.post("/api/analyze", async (req, res) => {
+  app.post("/api/analyze", spendLimit, async (req, res) => {
     try {
-      const { ticker, instruction, origin, model } = req.body;
+      const { instruction, origin, model } = req.body;
+      // `ticker` is interpolated into three filenames below. Unvalidated, a
+      // value like "../../x" wrote log files outside run_logs.
+      const ticker = parseTicker(req.body?.ticker);
       if (!ticker) {
-        return res.status(400).json({ error: "Missing ticker." });
+        return res.status(400).json({ error: "Missing or invalid ticker. Use letters, digits, dots or hyphens (max 12)." });
       }
 
       console.log(`[analyze] Starting analysis for ${ticker} using model ${model || 'default'}`);
@@ -222,6 +300,73 @@ async function startServer() {
 }`;;
 
       const prompt = `Perform a comprehensive document analysis on ${ticker}. ${finalInstruction}\n\nCRITICAL INSTRUCTIONS FOR QUANTITATIVE DATA (CHARTS):\nFor stock_price_4m and financial_performance_4q, you MUST use standard open web searches (e.g. Yahoo Finance, Google Finance, MarketWatch) WITHOUT the filetype:pdf restriction to get accurate historical prices, distributions, revenue, and net income. Do NOT rely solely on SEC PDFs for this quantitative data.\nFor stock_price_4m, provide exactly 4 data points representing the past 4 months of stock prices. For each month, give the closing price on the last trading day of the month. Order the array chronologically from the oldest month to the newest month (left to right).\nFor financial_performance_4q, if the ticker is a regular stock, provide net income and revenue for the past four completed quarters. If it is an ETF, provide quarterly distributions (dividends/yield per share) for the past four completed quarters. Ensure the array is chronologically ordered from oldest quarter to newest (left to right).\n\nCRITICAL INSTRUCTIONS FOR QUALITATIVE DATA (INSIGHTS & SUMMARIES):\nFor the Executive Summary, Key Takeaways, and Deep Insights, you MUST leverage BOTH the findings extracted from the PDF SEC filings AND insights from broader open web searches to create a comprehensive analysis.\n\nCRITICAL: You MUST output the final synthesis report as a raw JSON object wrapped in \`\`\`json ... \`\`\` markdown block in your final text response. The JSON must match the following schema EXACTLY. **HEAVILY PENALIZED:** Do NOT rename keys. Do NOT add extra root-level keys like "macro_risk_analysis". Make sure to populate the "findings" array with exactly the keys "documentType", "keyInsights", "date", and "sourceUrl". For stock_price_4m, use exactly the keys "date" and "price". The "deep_insights" array MUST use exactly the keys "category", "title", "description", and "impact_score":\n${dynamicSchema}\nDo not include multiple sub-agents, just do the analysis yourself based on the retrieved documents and searches.`;
+
+      const provider = req.body?.provider;
+      const isNonGemini = provider === 'claude' || provider === 'openai' || provider === 'deepseek' || provider === 'groq' ||
+        (model && (model.includes('claude') || model.includes('gpt') || model.startsWith('o3') || model.includes('deepseek') || model.includes('llama')));
+
+      if (isNonGemini) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders();
+
+        const activeProvider = provider || (model?.includes('claude') ? 'claude' : model?.includes('gpt') ? 'openai' : model?.includes('deepseek') ? 'deepseek' : 'groq');
+        const activeModel = model || (activeProvider === 'claude' ? 'claude-3-7-sonnet-20250219' : activeProvider === 'openai' ? 'gpt-4o' : 'deepseek-chat');
+
+        const startTime = Date.now();
+        const runId = Date.now();
+        const runLogsDir = path.join(process.cwd(), 'run_logs');
+        if (!fs.existsSync(runLogsDir)) {
+          fs.mkdirSync(runLogsDir, { recursive: true });
+        }
+        const jsonlLogPath = path.join(runLogsDir, `run_log_${ticker}_${runId}.jsonl`);
+
+        res.write(`data: ${JSON.stringify({ type: 'thinking', text: `[${activeProvider.toUpperCase()} (${activeModel})] Initializing SEC synthesis pipeline for ${ticker}...\n` })}\n\n`);
+
+        let accumulated = '';
+        let totalTokens = 0;
+
+        try {
+          const telemetry = await multiProviderLlm.streamText(
+            {
+              provider: activeProvider,
+              model: activeModel,
+              prompt,
+              system: 'You are an elite financial research analyst specializing in SEC filings, forensic accounting, quantitative modeling, and risk factors.',
+              temperature: 0.4
+            },
+            (chunk) => {
+              accumulated += chunk;
+              res.write(`data: ${JSON.stringify({ type: 'text', text: chunk })}\n\n`);
+            }
+          );
+          totalTokens = telemetry.totalTokens || Math.round(accumulated.length / 4);
+        } catch (streamErr: any) {
+          console.error(`[analyze] ${activeProvider} error:`, streamErr);
+          res.write(`data: ${JSON.stringify({ type: 'error', message: streamErr.message })}\n\n`);
+          res.end();
+          return;
+        }
+
+        const completeEvt = { type: 'complete', interaction: { usage: { total_tokens: totalTokens } } };
+        res.write(`data: ${JSON.stringify(completeEvt)}\n\n`);
+
+        try {
+          fs.writeFileSync(jsonlLogPath, JSON.stringify(completeEvt) + '\n', 'utf-8');
+        } catch {}
+
+        const totalDurationSecs = (Date.now() - startTime) / 1000;
+        res.write(`data: ${JSON.stringify({
+          type: 'final_stats',
+          duration: totalDurationSecs,
+          tokens: totalTokens,
+          jsonlLogUrl: '/run_logs/' + `run_log_${ticker}_${runId}.jsonl`
+        })}\n\n`);
+
+        res.end();
+        return;
+      }
 
       let response;
       if (model === 'perseus') {
@@ -363,15 +508,54 @@ async function startServer() {
     }
   });
 
+  // --- Evolution engine --------------------------------------------------
+  // Registered before the SPA catch-all so /api/evolution/* is not swallowed by
+  // the index.html fallback. A missing GEMINI_API_KEY is not fatal: the rest of
+  // the server still runs and the dashboard falls back to its seed data.
+  let evolutionEngine: EvolutionEngine | null = null;
+  try {
+    evolutionEngine = new EvolutionEngine();
+    registerEvolutionRoutes(app, evolutionEngine);
+    await evolutionEngine.init();
+    console.log("[evolution] engine ready");
+  } catch (err: any) {
+    console.warn(`[evolution] engine unavailable: ${err?.message ?? err}`);
+    app.use('/api/evolution', (_req, res) => {
+      res.status(503).json({ error: "Evolution engine is not available on this server." });
+    });
+  }
+
+  const shutdown = async (signal: string) => {
+    console.log(`\n[server] ${signal} received, shutting down`);
+    try {
+      await evolutionEngine?.shutdown();
+    } catch (err) {
+      console.error("[evolution] shutdown failed", err);
+    }
+    process.exit(0);
+  };
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
+
   const distPath = path.join(process.cwd(), 'dist');
   const indexHtmlExists = fs.existsSync(path.join(distPath, 'index.html'));
   app.use('/artifacts', express.static(path.join(process.cwd(), 'workspace', 'artifacts')));
   app.use('/run_logs', express.static(path.join(process.cwd(), 'run_logs')));
-  app.use('/latest_log', express.static(process.cwd()));
+  // Was `express.static(process.cwd())`: it served every source file, the
+  // evolution state, and the contents of .git. The only file the app writes to
+  // the working directory is sub_agents_debug_<TICKER>.txt, so serve exactly that.
+  app.get('/latest_log/:ticker', (req, res) => {
+    const ticker = parseTicker(req.params.ticker);
+    if (!ticker) return res.status(400).send('Invalid ticker');
+    const file = path.join(process.cwd(), `sub_agents_debug_${ticker}.txt`);
+    if (!fs.existsSync(file)) return res.status(404).send('No debug log for that ticker');
+    res.type('text/plain').sendFile(file);
+  });
 
   if (process.env.NODE_ENV !== "production" || !indexHtmlExists) {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { middlewareMode: true, hmr: false },
       appType: "spa",
     });
     app.use(vite.middlewares);

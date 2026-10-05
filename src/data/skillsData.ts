@@ -87,6 +87,49 @@ export const INITIAL_SKILLS: AgentSkill[] = [
       survivalIterations: 420,
       mutationType: 'Adversarial Constraint Hardening'
     },
+    attachedFiles: [
+      {
+        id: 'file-sab104',
+        name: 'SEC_Staff_Accounting_Bulletin_104_Forensics.md',
+        type: 'md',
+        sizeBytes: 14250,
+        uploadedAt: '2026-09-14T08:30:00Z',
+        contentPreview: '# SEC SAB 104 Revenue Recognition & Forensic Auditing Spec\n- RULE 1: Delivery has occurred or services have been rendered prior to recognizing upfront milestones.\n- RULE 2: Fixed or determinable seller pricing must be independently reconciled against signed addenda.\n- RULE 3: Collectibility must be reasonably assured; flag any aging receivable beyond 90 days.',
+        fullContent: `# SEC SAB 104 Revenue Recognition & Forensic Auditing Spec\n\n## 1. Domain Invariant Rules\n- RULE 1: Delivery has occurred or services have been rendered prior to recognizing upfront milestones.\n- RULE 2: Fixed or determinable seller pricing must be independently reconciled against signed addenda.\n- RULE 3: Collectibility must be reasonably assured; flag any aging receivable beyond 90 days.\n- RULE 4: Reject bill-and-hold agreements lacking explicit written buyer-side custodial justification.\n\n## 2. Adversarial Testbench Parameters\nAgents must evaluate vendor financing kickbacks, gross vs net reporting under ASC 606, and deferred revenue haircuts during asset divestitures.`,
+        parsedData: {
+          extractedTitle: 'SEC SAB 104 Revenue Recognition & Forensic Auditing Spec',
+          extractedDescription: 'Autonomous Forensic Agent Invariant Rules & Testbench Parameters',
+          extractedRules: [
+            'RULE 1: Delivery has occurred or services have been rendered prior to recognizing upfront milestones.',
+            'RULE 2: Fixed or determinable seller pricing must be independently reconciled against signed addenda.',
+            'RULE 3: Collectibility must be reasonably assured; flag any aging receivable beyond 90 days.',
+            'RULE 4: Reject bill-and-hold agreements lacking explicit written buyer-side custodial justification.'
+          ],
+          charCount: 14250
+        }
+      },
+      {
+        id: 'file-basel-pdf',
+        name: 'Basel_III_Liquidity_Coverage_Ratio_Handbook.pdf',
+        type: 'pdf',
+        sizeBytes: 124500,
+        uploadedAt: '2026-09-15T11:20:00Z',
+        contentPreview: 'BASEL COMMITTEE ON BANKING SUPERVISION\nINTERNATIONAL REGULATORY FRAMEWORK FOR LIQUIDITY RISK\nRULE 1: High Quality Liquid Assets (HQLA) must cover 100% of 30-day net stressed cash outflows.',
+        fullContent: `BASEL COMMITTEE ON BANKING SUPERVISION\nINTERNATIONAL REGULATORY FRAMEWORK FOR LIQUIDITY RISK\n\nSection 3. Liquidity Coverage Ratio (LCR) Mandates:\nRULE 1: High Quality Liquid Assets (HQLA) must cover 100% of 30-day net stressed cash outflows.\nRULE 2: Level 2B assets cannot exceed 15% of total liquidity buffer.\nRULE 3: Operational deposit run-off assumptions must account for wholesale uninsured flight risk.\nRULE 4: Uncommitted credit facilities to financial institutions must assume 100% drawdown under systemic crisis.`,
+        parsedData: {
+          extractedTitle: 'Basel III Liquidity Coverage Ratio Handbook',
+          extractedDescription: 'International Regulatory Framework for Liquidity Risk & Capital Ratios',
+          extractedRules: [
+            'RULE 1: High Quality Liquid Assets (HQLA) must cover 100% of 30-day net stressed cash outflows.',
+            'RULE 2: Level 2B assets cannot exceed 15% of total liquidity buffer.',
+            'RULE 3: Operational deposit run-off assumptions must account for wholesale uninsured flight risk.',
+            'RULE 4: Uncommitted credit facilities to financial institutions must assume 100% drawdown under systemic crisis.'
+          ],
+          pdfPageCount: 18,
+          charCount: 124500
+        }
+      }
+    ],
     stageHistory: [
       { stage: 'idea', timestamp: '14 days ago', score: 78.2, notes: 'Initial hypothesis: Cross-vectoring SEC footnotes against cash flow statements.' },
       { stage: 'training', timestamp: '10 days ago', score: 88.5, notes: 'Trained on 5,000 historic 10-K restatements; enforced strict line citation rule.' },

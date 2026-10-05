@@ -54,6 +54,32 @@ export interface EvolutionHistorySidePanelProps {
   onRunTest?: (skill: AgentSkill) => void;
   onOpenForceGraph?: (skill: AgentSkill) => void;
   onPromoteSkill?: (skill: AgentSkill) => void;
+  /**
+   * Fetches the engine's real lineage for a skill. The local helper synthesises
+   * a plausible history for skills it has no record of, which in a provenance
+   * panel is the one thing that must never happen.
+   */
+  onFetchLineage?: (skillId: string) => Promise<ChampionEvolutionLineageAudit | null>;
+}
+
+/** A skill's lineage when nothing has been recorded: true, and empty. */
+function emptyAudit(skill: AgentSkill | undefined): ChampionEvolutionLineageAudit {
+  return {
+    championId: skill?.id ?? '',
+    championCode: skill?.code ?? '',
+    championName: skill?.name ?? 'No skill selected',
+    tagline: skill?.tagline ?? '',
+    specialistRole: skill?.specialistRole ?? '',
+    currentScore: skill?.benchmarkScore ?? 0,
+    initialScore: skill?.benchmarkScore ?? 0,
+    totalPerformanceDelta: 0,
+    averageMutationRate: 0,
+    parentSeeds: [],
+    remixVectorCombo: skill?.evolutionLineage?.remixVectorCombo ?? '',
+    iterations: [],
+    championMilestoneAchievedAt: skill?.lastEvaluatedAt ?? '',
+    lineageSummary: 'No recorded lineage yet.',
+  };
 }
 
 export const EvolutionHistorySidePanel: React.FC<EvolutionHistorySidePanelProps> = ({
@@ -66,7 +92,8 @@ export const EvolutionHistorySidePanel: React.FC<EvolutionHistorySidePanelProps>
   onRemixSkill,
   onRunTest,
   onOpenForceGraph,
-  onPromoteSkill
+  onPromoteSkill,
+  onFetchLineage
 }) => {
   // Current target skill
   const currentSkill: AgentSkill = useMemo(() => {
@@ -94,13 +121,31 @@ export const EvolutionHistorySidePanel: React.FC<EvolutionHistorySidePanelProps>
   const [isDocked, setIsDocked] = useState(false);
 
   // Compute evolution history audit object
+  // With a live engine the panel shows recorded lineage or nothing. It never
+  // falls back to getSkillEvolutionHistory, which invents a plausible history
+  // for any skill it has no record of.
   const [auditData, setAuditData] = useState<ChampionEvolutionLineageAudit>(() =>
-    getSkillEvolutionHistory(currentSkill, skills)
+    onFetchLineage ? emptyAudit(currentSkill) : getSkillEvolutionHistory(currentSkill, skills)
   );
 
   // Re-sync audit data when target skill changes
   useEffect(() => {
-    if (currentSkill) {
+    if (currentSkill && onFetchLineage) {
+      let cancelled = false;
+      // Show the honest empty state immediately rather than whatever the
+      // previous skill's lineage was while the request is in flight.
+      setAuditData(emptyAudit(currentSkill));
+      void onFetchLineage(currentSkill.id).then((real) => {
+        if (!cancelled) setAuditData(real ?? emptyAudit(currentSkill));
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [currentSkill, onFetchLineage]);
+
+  useEffect(() => {
+    if (currentSkill && !onFetchLineage) {
       const audit = getSkillEvolutionHistory(currentSkill, skills);
       setAuditData(audit);
       // Expand latest iteration by default
@@ -769,7 +814,7 @@ export const EvolutionHistorySidePanel: React.FC<EvolutionHistorySidePanelProps>
                         {/* Epoch Header Clickable */}
                         <div
                           onClick={() => toggleIteration(iter.iterationNumber)}
-                          className="p-3.5 flex items-start justify-between gap-3 cursor-pointer select-none"
+                          className="p-3.5 flex items-start justify-between gap-3 cursor-pointer select-none bg-stone-900/40 hover:bg-stone-900/70"
                         >
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 text-xs font-mono mb-1 flex-wrap">

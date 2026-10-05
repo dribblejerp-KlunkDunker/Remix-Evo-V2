@@ -40,8 +40,32 @@ import {
   Maximize2
 } from 'lucide-react';
 
+export interface MeasuredCognitiveProfile {
+  skillId: string;
+  skillCode: string;
+  skillName: string;
+  stage: string;
+  vector: string;
+  generation: number;
+  benchmarkScore: number;
+  averageLatencyMs: number | null;
+  averageMemoryUsage: number | null;
+  averageTokenCertainty: number | null;
+  averageBacktracks: number | null;
+  averageContextPressure: number | null;
+  averageStrainIndex: number | null;
+  samples: number;
+  unavailable: string[];
+}
+
 export interface CognitiveLoadMonitorProps {
   skills: AgentSkill[];
+  /**
+   * Measured telemetry from the engine. When present the synthetic stream is
+   * switched off — mixing generated points into a panel labelled as telemetry
+   * is the exact failure mode this rewrite exists to remove.
+   */
+  profiles?: MeasuredCognitiveProfile[];
   isOpenAsOverlay?: boolean;
   onCloseOverlay?: () => void;
   onInspectSkill?: (skill: AgentSkill) => void;
@@ -50,6 +74,7 @@ export interface CognitiveLoadMonitorProps {
 
 export const CognitiveLoadMonitor: React.FC<CognitiveLoadMonitorProps> = ({
   skills,
+  profiles,
   isOpenAsOverlay = false,
   onCloseOverlay,
   onInspectSkill,
@@ -67,11 +92,15 @@ export const CognitiveLoadMonitor: React.FC<CognitiveLoadMonitorProps> = ({
     trainingSkills[0]?.id || 'skill-train-01'
   );
 
-  const selectedChampionSkill = useMemo(
+  // A real population can have no champion (early on) or nothing in training
+  // (everything graduated). The seed fixtures always had both, so these were
+  // dereferenced unguarded — and the first real population with no training
+  // skills crashed the panel and, with no error boundary, the whole app.
+  const selectedChampionSkill = useMemo<AgentSkill | undefined>(
     () => championSkills.find((s) => s.id === selectedChampionId) || championSkills[0],
     [championSkills, selectedChampionId]
   );
-  const selectedTrainingSkill = useMemo(
+  const selectedTrainingSkill = useMemo<AgentSkill | undefined>(
     () => trainingSkills.find((s) => s.id === selectedTrainingId) || trainingSkills[0],
     [trainingSkills, selectedTrainingId]
   );
@@ -97,9 +126,11 @@ export const CognitiveLoadMonitor: React.FC<CognitiveLoadMonitorProps> = ({
   const topologySvgRef = useRef<SVGSVGElement | null>(null);
   const radarSvgRef = useRef<SVGSVGElement | null>(null);
 
-  // Live timer tick
+  const hasMeasured = Array.isArray(profiles) && profiles.length > 0;
+
+  // Live timer tick — synthetic, so it must not run alongside real telemetry.
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!isPlaying || hasMeasured) return;
 
     const intervalMs = Math.round(1100 / streamSpeed);
     const interval = setInterval(() => {
@@ -121,7 +152,7 @@ export const CognitiveLoadMonitor: React.FC<CognitiveLoadMonitorProps> = ({
     }, intervalMs);
 
     return () => clearInterval(interval);
-  }, [isPlaying, streamSpeed, selectedChampionSkill, selectedTrainingSkill]);
+  }, [isPlaying, streamSpeed, selectedChampionSkill, selectedTrainingSkill, hasMeasured]);
 
   // Current latest telemetry point
   const currentTelemetry = historyData[historyData.length - 1] || historyData[0];
@@ -382,12 +413,12 @@ export const CognitiveLoadMonitor: React.FC<CognitiveLoadMonitorProps> = ({
     const nodes: TopologyNode[] = [
       { id: 'core', label: 'Agent Thinking Core', type: 'CORE', r: 24, strain: 45 },
       // Champion Cluster
-      { id: 'champ-root', label: selectedChampionSkill.code, type: 'CHAMPION', r: 18, strain: currentTelemetry.championStrain },
+      { id: 'champ-root', label: selectedChampionSkill?.code ?? 'No champion yet', type: 'CHAMPION', r: 18, strain: currentTelemetry.championStrain },
       { id: 'champ-inv-1', label: 'Zero-GAAP Bypassing', type: 'INVARIANT', r: 12, strain: 15 },
       { id: 'champ-inv-2', label: 'Footnote Cross-Foot', type: 'INVARIANT', r: 12, strain: 20 },
       { id: 'champ-inv-3', label: 'Covenant Verification', type: 'INVARIANT', r: 12, strain: 18 },
       // Training Cluster
-      { id: 'train-root', label: selectedTrainingSkill.code, type: 'TRAINING', r: 18, strain: currentTelemetry.trainingStrain },
+      { id: 'train-root', label: selectedTrainingSkill?.code ?? 'None in training', type: 'TRAINING', r: 18, strain: currentTelemetry.trainingStrain },
       { id: 'train-exp-1', label: 'Lévy Intensity Search', type: 'EXPLORATORY', r: 13, strain: 78 },
       { id: 'train-exp-2', label: 'Backtrack Re-weighting', type: 'EXPLORATORY', r: 14, strain: 84 },
       { id: 'train-exp-3', label: 'Fat-Tail Kurtosis Fit', type: 'EXPLORATORY', r: 12, strain: 70 },
@@ -678,6 +709,79 @@ export const CognitiveLoadMonitor: React.FC<CognitiveLoadMonitorProps> = ({
 
   const content = (
     <div className={`space-y-6 ${className}`}>
+      {/* With real telemetry, ONLY the measured panel renders. The simulated
+          monitor kept showing generated values — including an "attention
+          entropy" — directly beneath a table declaring that metric unmeasurable. */}
+      {hasMeasured ? (
+        <>
+      {/* 0. Measured telemetry — shown only when the engine supplied real data. */}
+      {hasMeasured && (
+        <div className="bg-stone-900/70 border border-emerald-900/60 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] uppercase tracking-wider text-emerald-400 font-bold">
+                Measured Execution Telemetry
+              </span>
+              <span className="text-[10px] text-stone-500">
+                {profiles!.reduce((n, p) => n + p.samples, 0)} sampled runs across {profiles!.length} skills
+              </span>
+            </div>
+            <span className="text-[10px] text-amber-500/80" title="These fields are not recoverable from the model API, so they are left blank rather than estimated.">
+              unavailable: {profiles![0]?.unavailable.join(', ')}
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[11px] font-mono">
+              <thead className="text-stone-500 border-b border-stone-800">
+                <tr>
+                  <th className="text-left py-1.5 pr-3 font-normal">Skill</th>
+                  <th className="text-right py-1.5 px-2 font-normal">Latency</th>
+                  <th className="text-right py-1.5 px-2 font-normal">Reasoning&nbsp;%</th>
+                  <th className="text-right py-1.5 px-2 font-normal">Certainty</th>
+                  <th className="text-right py-1.5 px-2 font-normal">Revisions</th>
+                  <th className="text-right py-1.5 px-2 font-normal">Ctx&nbsp;%</th>
+                  <th className="text-right py-1.5 px-2 font-normal">Strain</th>
+                  <th className="text-right py-1.5 pl-2 font-normal">n</th>
+                </tr>
+              </thead>
+              <tbody>
+                {profiles!
+                  .slice()
+                  .sort((a, b) => (b.averageStrainIndex ?? 0) - (a.averageStrainIndex ?? 0))
+                  .slice(0, 12)
+                  .map((p) => {
+                    // A dash means not measured. It never means zero.
+                    const cell = (v: number | null, suffix = '') =>
+                      v === null ? <span className="text-stone-600">—</span> : `${v}${suffix}`;
+                    return (
+                      <tr key={p.skillId} className="border-b border-stone-900/60 hover:bg-stone-900/40">
+                        <td className="py-1.5 pr-3 text-stone-300 truncate max-w-[220px]">
+                          {p.skillName}
+                          <span className="text-stone-600 ml-1.5">{p.stage}</span>
+                        </td>
+                        <td className="text-right px-2 text-stone-400">{cell(p.averageLatencyMs, 'ms')}</td>
+                        <td className="text-right px-2 text-stone-400">{cell(p.averageMemoryUsage, '%')}</td>
+                        <td className="text-right px-2 text-stone-400">{cell(p.averageTokenCertainty, '%')}</td>
+                        <td className="text-right px-2 text-stone-400">{cell(p.averageBacktracks)}</td>
+                        <td className="text-right px-2 text-stone-400">{cell(p.averageContextPressure, '%')}</td>
+                        <td className="text-right px-2 text-emerald-400">{cell(p.averageStrainIndex)}</td>
+                        <td className="text-right pl-2 text-stone-600">{p.samples}</td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+          <p className="text-[10px] text-stone-600 mt-2.5">
+            Latency, token counts and certainty come from the model API. Revisions are counted from
+            the response text. The simulated stream below is paused while real telemetry is present.
+          </p>
+        </div>
+      )}
+
+        </>
+      ) : (
+        <>
       {/* 1. Header Banner */}
       <div className="bg-stone-900/70 border border-stone-800 p-5 relative overflow-hidden backdrop-blur-xs">
         <div className="absolute top-0 right-0 w-96 h-36 bg-blue-500/10 blur-3xl pointer-events-none" />
@@ -936,11 +1040,11 @@ export const CognitiveLoadMonitor: React.FC<CognitiveLoadMonitorProps> = ({
               <div className="flex items-center gap-3 text-[11px]">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                  <span className="text-emerald-300 font-bold">{selectedChampionSkill.code} (Champion)</span>
+                  <span className="text-emerald-300 font-bold">{selectedChampionSkill?.code ?? 'No champion yet'} (Champion)</span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <span className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                  <span className="text-amber-300 font-bold">{selectedTrainingSkill.code} (In-Training)</span>
+                  <span className="text-amber-300 font-bold">{selectedTrainingSkill?.code ?? 'None in training'} (In-Training)</span>
                 </div>
               </div>
             </div>
@@ -1037,6 +1141,8 @@ export const CognitiveLoadMonitor: React.FC<CognitiveLoadMonitorProps> = ({
           })}
         </div>
       </div>
+        </>
+      )}
     </div>
   );
 

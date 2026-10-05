@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Remix Evo
+Comment=Autonomous Multi-Agent Financial Research Evolution Engine
+Exec=/usr/bin/remix-evo open
+Icon=remix-evo
+Terminal=false
+Type=Application
+Categories=Development;Science;
+StartupNotify=true

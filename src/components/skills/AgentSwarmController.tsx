@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { LiveSwarmRunner } from './LiveSwarmRunner';
+import type { AgentSkill } from '../../types/skills';
+import type { SwarmRunResult } from '../../../server/evolution/runs';
 import {
   ResponsiveContainer,
   BarChart,
@@ -56,9 +59,36 @@ import {
 export interface AgentSwarmControllerProps {
   onInspectGlobalSkill?: (skillId: string) => void;
   className?: string;
+  /**
+   * Real swarm runs. When supplied, this view renders the live runner in place of
+   * the seeded puzzle simulation — its competing agents and scores were canned.
+   */
+  live?: {
+    skills: AgentSkill[];
+    runSwarm: (scenarioId: string, skillIds: string[]) => Promise<SwarmRunResult>;
+  };
 }
 
 export const AgentSwarmController: React.FC<AgentSwarmControllerProps> = ({
+  onInspectGlobalSkill,
+  className = '',
+  live
+}) => {
+  if (live) {
+    return (
+      <LiveSwarmRunner
+        skills={live.skills}
+        runSwarm={live.runSwarm}
+        onInspectSkill={onInspectGlobalSkill}
+        className={className}
+      />
+    );
+  }
+  return <SimulatedSwarmController onInspectGlobalSkill={onInspectGlobalSkill} className={className} />;
+};
+
+/** The original seeded simulation, kept as the no-engine fallback. */
+const SimulatedSwarmController: React.FC<AgentSwarmControllerProps> = ({
   onInspectGlobalSkill,
   className = ''
 }) => {

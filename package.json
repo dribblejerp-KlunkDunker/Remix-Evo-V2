@@ -1,15 +1,18 @@
 {
   "name": "tickr",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --target=node22 --external:vite --sourcemap --outfile=dist/server.cjs",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:evolution": "tsx server/evolution/engine.test.ts",
+    "preflight:evolution": "tsx server/evolution/preflight.ts",
+    "build:chromebook": "bash packaging/chromebook/build-deb.sh"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.19.0",
@@ -22,8 +25,6 @@
     "dotenv": "^17.2.3",
     "esbuild": "^0.28.0",
     "express": "^4.21.2",
-    "firebase": "^12.14.0",
-    "firebase-admin": "^13.10.0",
     "jszip": "^3.10.1",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
@@ -42,9 +43,11 @@
     "@types/node": "^22.14.0",
     "@types/pako": "^2.0.4",
     "autoprefixer": "^10.4.21",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "vite-plugin-pwa": "^2.0.0"
   }
 }
